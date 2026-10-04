@@ -1,0 +1,12 @@
+image:
+  repository: ghcr.io/13nour11/notification-service
+  tag: latest
+
+containerPort: 8085
+service:
+  port: 8085
+
+env:
+  CONFIG_SERVER_URL: http://config-server:8888
+  EUREKA_URL: http://eureka-server:8761/eureka/
+  KAFKA_BOOTSTRAP_SERVERS: kafka.infra:9092

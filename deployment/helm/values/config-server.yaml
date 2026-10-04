@@ -1,0 +1,10 @@
+image:
+  repository: ghcr.io/13nour11/config-server
+  tag: latest
+
+containerPort: 8888
+service:
+  port: 8888
+
+env:
+  EUREKA_URL: http://eureka-server:8761/eureka/

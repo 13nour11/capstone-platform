@@ -1,0 +1,22 @@
+# Infrastructure (PostgreSQL, Kafka, Redis, Keycloak, Zipkin, Prometheus, Grafana) as raw manifests.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: infra
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/13nour11/capstone-platform.git
+    # CI commits image-tag bumps to env/dev; main stays protected (ADD §7)
+    targetRevision: env/dev
+    path: deployment/kubernetes/infra
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: infra
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

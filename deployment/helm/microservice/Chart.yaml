@@ -1,0 +1,6 @@
+apiVersion: v2
+name: microservice
+description: One chart for every Spring Boot service of the platform; per-service settings live in ../values/<service>.yaml
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
