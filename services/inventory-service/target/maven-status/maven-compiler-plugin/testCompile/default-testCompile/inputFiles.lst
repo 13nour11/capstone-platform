@@ -1,7 +1,0 @@
-D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\test\java\com\ecommerce\inventory\api\InventoryControllerTest.java
-D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\test\java\com\ecommerce\inventory\application\InventoryServiceTest.java
-D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\test\java\com\ecommerce\inventory\domain\StockDomainTest.java
-D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\test\java\com\ecommerce\inventory\infrastructure\kafka\InventoryKafkaListenerTest.java
-D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\test\java\com\ecommerce\inventory\infrastructure\outbox\OutboxPublisherTest.java
-D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\test\java\com\ecommerce\inventory\infrastructure\persistence\StockRepositoryTest.java
-D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\test\java\com\ecommerce\inventory\infrastructure\scheduler\ReservationSweeperTest.java

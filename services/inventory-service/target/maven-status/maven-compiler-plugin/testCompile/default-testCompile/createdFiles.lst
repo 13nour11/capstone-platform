@@ -1,7 +1,0 @@
-com\ecommerce\inventory\application\InventoryServiceTest.class
-com\ecommerce\inventory\infrastructure\scheduler\ReservationSweeperTest.class
-com\ecommerce\inventory\domain\StockDomainTest.class
-com\ecommerce\inventory\infrastructure\kafka\InventoryKafkaListenerTest.class
-com\ecommerce\inventory\infrastructure\persistence\StockRepositoryTest.class
-com\ecommerce\inventory\infrastructure\outbox\OutboxPublisherTest.class
-com\ecommerce\inventory\api\InventoryControllerTest.class

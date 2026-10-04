@@ -1,7 +1,0 @@
-D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\test\java\com\ecommerce\order\api\OrderControllerTest.java
-D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\test\java\com\ecommerce\order\application\OrderServiceTest.java
-D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\test\java\com\ecommerce\order\domain\OrderDomainTest.java
-D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\test\java\com\ecommerce\order\infrastructure\kafka\OrderKafkaListenerTest.java
-D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\test\java\com\ecommerce\order\infrastructure\outbox\OutboxPublisherTest.java
-D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\test\java\com\ecommerce\order\infrastructure\persistence\OrderRepositoryTest.java
-D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\test\java\com\ecommerce\order\OrderSyncIntegrationTest.java
