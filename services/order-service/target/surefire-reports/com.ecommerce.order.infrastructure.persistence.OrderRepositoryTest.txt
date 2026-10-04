@@ -1,4 +1,4 @@
 -------------------------------------------------------------------------------
 Test set: com.ecommerce.order.infrastructure.persistence.OrderRepositoryTest
 -------------------------------------------------------------------------------
-Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 6.676 s -- in com.ecommerce.order.infrastructure.persistence.OrderRepositoryTest
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 6.925 s -- in com.ecommerce.order.infrastructure.persistence.OrderRepositoryTest
