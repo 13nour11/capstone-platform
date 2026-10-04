@@ -1,0 +1,4 @@
+com\ecommerce\inventory\application\InventoryServiceTest.class
+com\ecommerce\inventory\infrastructure\persistence\StockRepositoryTest.class
+com\ecommerce\inventory\api\InventoryControllerTest.class
+com\ecommerce\inventory\domain\StockDomainTest.class

@@ -1,0 +1,17 @@
+com\ecommerce\inventory\domain\exception\ProductNotFoundException.class
+com\ecommerce\inventory\InventoryServiceApplication.class
+com\ecommerce\inventory\api\dto\CheckStockResponse.class
+com\ecommerce\inventory\api\InventoryController.class
+com\ecommerce\inventory\api\GlobalExceptionHandler.class
+com\ecommerce\inventory\domain\Reservation.class
+com\ecommerce\inventory\domain\ReservationStatus.class
+com\ecommerce\inventory\api\dto\StockAdjustmentRequest.class
+com\ecommerce\inventory\infrastructure\persistence\ReservationRepository.class
+com\ecommerce\inventory\api\dto\StockResponse.class
+com\ecommerce\inventory\application\InventoryService.class
+com\ecommerce\inventory\domain\Stock$Builder.class
+com\ecommerce\inventory\domain\Reservation$Builder.class
+com\ecommerce\inventory\domain\exception\InsufficientStockException.class
+com\ecommerce\inventory\domain\Stock.class
+com\ecommerce\inventory\application\InventoryServiceImpl.class
+com\ecommerce\inventory\infrastructure\persistence\StockRepository.class

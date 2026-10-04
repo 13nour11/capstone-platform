@@ -1,0 +1,15 @@
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\api\dto\CheckStockResponse.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\api\dto\StockAdjustmentRequest.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\api\dto\StockResponse.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\api\GlobalExceptionHandler.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\api\InventoryController.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\application\InventoryService.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\application\InventoryServiceImpl.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\domain\exception\InsufficientStockException.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\domain\exception\ProductNotFoundException.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\domain\Reservation.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\domain\ReservationStatus.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\domain\Stock.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\infrastructure\persistence\ReservationRepository.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\infrastructure\persistence\StockRepository.java
+D:\Github\Capstone Microservices\capstone-platform\services\inventory-service\src\main\java\com\ecommerce\inventory\InventoryServiceApplication.java

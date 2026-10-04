@@ -1,0 +1,15 @@
+package com.ecommerce.order.application;
+
+import com.ecommerce.order.api.dto.CreateOrderRequest;
+import com.ecommerce.order.api.dto.OrderResponse;
+
+import java.util.List;
+
+public interface OrderService {
+
+    OrderResponse createOrder(String customerId, CreateOrderRequest request);
+
+    OrderResponse getOrderById(String orderId);
+
+    List<OrderResponse> getOrdersByCustomerId(String customerId);
+}
