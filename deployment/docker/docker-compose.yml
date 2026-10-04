@@ -167,6 +167,9 @@ services:
     build:
       context: ../..
       dockerfile: platform/config-server/Dockerfile
+    environment:
+      # Serve the repository's config-repo, mounted below (Brief §7: "reads /config-repo").
+      SPRING_CLOUD_CONFIG_SERVER_NATIVE_SEARCH_LOCATIONS: file:/config-repo
     volumes:
       - ../../config-repo:/config-repo:ro
     ports:
