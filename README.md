@@ -1,145 +1,74 @@
-# Capstone Platform Microservices
-
-An enterprise e-commerce platform built with Spring Boot 3, Spring Cloud, Kafka, and PostgreSQL, demonstrating Choreography-based Saga, Transactional Outbox, and Distributed Tracing.
-
----
-
-## Run locally
-
-### Prerequisites
-- Java 21+
-- Apache Maven 3.9+
-- Docker & Docker Compose (optional for full platform infra)
-- PostgreSQL 16 & Apache Kafka 3.7 (or embedded test profile)
-
-### Running Member B Services Locally
-
-#### 1. Start Config & Eureka Servers (Platform)
-```bash
-# Config Server
-mvn spring-boot:run -f platform/config-server/pom.xml
-
-# Eureka Server
-mvn spring-boot:run -f platform/eureka-server/pom.xml
-```
-
-#### 2. Start Inventory Service
-```bash
-# Runs on port 8084
-mvn spring-boot:run -f services/inventory-service/pom.xml
-```
-
-#### 3. Start Order Service
-```bash
-# Runs on port 8082
-mvn spring-boot:run -f services/order-service/pom.xml
-```
-
-#### 4. Running Verification Test Suites
-```bash
-# Test Inventory Service (30 tests)
-mvn test -f services/inventory-service/pom.xml
-
-# Test Order Service (24 tests)
-mvn test -f services/order-service/pom.xml
-```
-
----
-
-## Security & curl checks
-*(Maintained by Member A)*
-
----
-
-## Orders & Saga
-
-### Choreography-based Saga Architecture
-
-The platform uses an asynchronous choreography-based Saga to coordinate transactions across distributed services (`order-service`, `inventory-service`, and `payment-service`) without distributed two-phase commit (2PC) locks.
-
-```
-[Client] 
-   │ POST /api/v1/orders
-   ▼
-[order-service] ──(HTTP sync check)──► [inventory-service]
-   │ (Persists Order PENDING + OutboxEvent)
-   │
-   ▼ (Async Outbox Poller)
-[Kafka: order-events] (OrderPlaced)
-   │
-   ├──► [inventory-service]
-   │       ├── Reserves stock atomically & saves Reservation
-   │       └── Persists OutboxEvent (InventoryReserved or InventoryReservationFailed)
-   │              │
-   │              ▼ (Async Outbox Poller)
-   │        [Kafka: inventory-events] (InventoryReserved)
-   │              │
-   │              └──► [payment-service]
-   │                      ├── Processes payment
-   │                      └── Emits PaymentCompleted or PaymentFailed
-   │                             │
-   ▼                             ▼
-[order-service] ◄── [Kafka: payment-events]
-   ├── On PaymentCompleted: Order -> CONFIRMED, emits OrderConfirmed
-   └── On PaymentFailed: Order -> CANCELLED, emits OrderCancelled
-          │
-          └──► [inventory-service] receives PaymentFailed / OrderCancelled:
-                  Releases reserved stock back to available pool
-```
-
-### Architectural Invariants & Patterns
-
-1. **Transactional Outbox Pattern**:
-   - Zero `kafkaTemplate.send()` calls inside database `@Transactional` blocks.
-   - Business entities and `outbox_event` records are committed in the **same local database transaction**.
-   - An asynchronous `@Scheduled` poller queries pending outbox events using `SELECT ... FOR UPDATE SKIP LOCKED` and publishes records to Kafka with `key = orderId`.
-   - On successful publish, the event status is marked as `SENT`.
-
-2. **Distributed Tracing Continuity (NFR-06)**:
-   - The active W3C `traceparent` header is captured and persisted in the `outbox_event.traceparent` column.
-   - When the outbox publisher dispatches the Kafka `ProducerRecord`, the `traceparent` is injected as a Kafka record header, ensuring zero trace context loss between asynchronous threads and services.
-
-3. **Idempotent Consumer Processing (NFR-10)**:
-   - Each consumer service maintains a `processed_event(event_id, consumer)` table.
-   - Every incoming event checks for duplicate processing within the consumer transaction. Duplicate events are silently discarded, guaranteeing exactly-once semantics at the business layer.
-
-4. **NFR-05 Reservation Timeout Sweeper**:
-   - `inventory-service` executes a scheduled sweeper (`ReservationSweeper`) every 10 seconds.
-   - Any reservation in `RESERVED` status older than 30 seconds (`inventory.reservation.ttl-seconds: 30`) is automatically released and refunded to available stock, preventing stock leakage from abandoned or unconfirmed orders.
-
-5. **Failure Compensation Paths**:
-   - **Out of Stock**: Synchronous check returns `409 Conflict` (`OUT_OF_STOCK`); order is never saved.
-   - **Payment Failure**: `payment-service` emits `PaymentFailed`. `order-service` cancels order (`CANCELLED`); `inventory-service` compensates by releasing the reserved stock.
-   - **Inventory Reservation Failure**: If concurrent orders deplete stock before async reservation, `inventory-service` emits `InventoryReservationFailed`. `order-service` marks the order `CANCELLED`.
-
----
+# capstone-platform
+Microservice
 
 ## Payment
-*(Maintained by Member C)*
 
----
+payment-service (port 8083) charges each order **exactly once** and reports the result to the Saga.
+
+| Endpoint | Access | Behaviour |
+|---|---|---|
+| `POST /api/v1/payments` (header `Idempotency-Key` required) | SERVICE, ADMIN | `201` charges the order. A retry with the same key replays the stored response with `Idempotent-Replayed: true`. The same key with a different body returns `422 IDEMPOTENCY_KEY_REUSED`. A new key for an already-paid order returns `200` with the existing payment. |
+| `POST /api/v1/payments/{id}/refund` | ADMIN | Refunds a completed payment once; a repeat returns the same result. A declined payment returns `409 REFUND_NOT_ALLOWED`. |
+
+**Saga hop.** Payment consumes `InventoryReserved` from `inventory-events` (group `payment-service`). In one transaction it writes:
+- the `processed_event` row,
+- the payment,
+- an outbox row with `PaymentCompleted` or `PaymentFailed`.
+
+The outbox poller publishes that row to `payment-events` with headers `eventType`, `eventId` and `traceparent`. A record that cannot be read goes to `inventory-events.DLT`.
+
+**Failure switch.** `payment.simulation.failure-rate` in `config-repo/payment-service.yml` (`PAYMENT_FAILURE_RATE` in `deployment/docker/.env`):
+- `0.0`: every payment succeeds.
+- `1.0`: every payment fails, which drives the compensation path.
+
+**Outbox reference design.** order-service and inventory-service reuse this design:
+
+| Piece | Where |
+|---|---|
+| Table | `outbox_event` in `V1__create_payment_tables.sql` |
+| Writer (joins the business transaction) | `OutboxWriter` |
+| Poller (`FOR UPDATE SKIP LOCKED`, marks a row sent only after the broker acknowledged it, stops the batch on the first failure) | `OutboxPublisher` |
+| Consumer contract | Route on the `eventType` header; deduplicate on `eventId` |
+
+**Run and test.**
+
+```bash
+cd services/payment-service
+mvn verify                                     # unit + Testcontainers + embedded Kafka tests, JaCoCo report
+mvn spring-boot:run -Dspring-boot.run.arguments=--spring.config.additional-location=file:../../config-repo/payment-service.yml
+```
+
+`spring-boot:run` reads the password from the `SPRING_DATASOURCE_PASSWORD` environment variable. The `additional-location` argument is only needed while config-server is not running.
 
 ## Kubernetes
-*(Maintained by Member C)*
 
----
+The kind cluster and infrastructure manifests live in `deployment/kubernetes/`. The full guide is [deployment/kubernetes/README.md](deployment/kubernetes/README.md).
 
-## Helm & GitOps
-*(Maintained by Member A)*
+```bash
+kind create cluster --config deployment/kubernetes/kind-config.yaml
+kubectl apply -f deployment/kubernetes/infra/namespace.yaml
+scripts/create-k8s-secrets.sh                 # Secrets from deployment/docker/.env (never committed)
+kubectl apply -f deployment/kubernetes/infra/
+kubectl -n ecommerce get pods -w
+```
 
----
-
-## Observability
-*(Maintained by Member B)*
-
-Distributed tracing is configured across all services via Micrometer Tracing with Brave and Zipkin exporter (`http://localhost:9411/api/v2/spans`). All Kafka events propagate W3C `traceparent` headers to correlate spans across HTTP requests and Kafka message processing.
-
----
-
-## Load tests
-*(Maintained by Member A)*
-
----
+| UI | URL (kind) |
+|---|---|
+| Keycloak | http://localhost:8180 |
+| Zipkin | http://localhost:9411 |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 |
+| API Gateway (Helm NodePort) | http://localhost:30080 |
 
 ## Bonus B2 — Order Analytics
-*(Maintained by Member C)*
+
+An ADMIN view of order volume, revenue and Saga failures, built from `order-events` with no new infrastructure.
+
+- **Read model:** `analytics_order` in `order_db`, written by consumer group `order-service-analytics`. It is idempotent per `eventId` (`analytics_processed_event`) and safe when `OrderConfirmed` arrives before `OrderPlaced`.
+- **API:** `GET /api/v1/analytics/summary?hours=24` (ADMIN, 1–168 hours). It returns orders by status, revenue from confirmed orders, the cancelled ratio and an hourly breakdown.
+- **Metrics:** `analytics_orders_total{status="PLACED|CONFIRMED|CANCELLED"}` and `analytics_revenue_total`, incremented only after commit.
+- **Dashboard:** Grafana → *Capstone / Order Analytics* (http://localhost:3000). Panels: orders per minute by status, revenue, Saga failure rate.
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_TOKEN" "http://localhost:8080/api/v1/analytics/summary?hours=24"
+```
