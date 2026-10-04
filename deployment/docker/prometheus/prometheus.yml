@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: spring-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - config-server:8888
+          - eureka-server:8761
+          - api-gateway:8080
+          - product-service:8081
+          - order-service:8082
+          - payment-service:8083
+          - inventory-service:8084
+          - notification-service:8085
+    relabel_configs:
+      # "payment-service:8083" -> service="payment-service"
+      - source_labels: [__address__]
+        regex: '([^:]+):\d+'
+        target_label: service
+
+  - job_name: prometheus
+    static_configs:
+      - targets: [localhost:9090]
