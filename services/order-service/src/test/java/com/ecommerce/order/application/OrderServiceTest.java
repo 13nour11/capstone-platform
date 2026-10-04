@@ -10,6 +10,8 @@ import com.ecommerce.order.domain.exception.OutOfStockException;
 import com.ecommerce.order.domain.exception.ServiceUnavailableException;
 import com.ecommerce.order.infrastructure.client.InventoryServiceClient;
 import com.ecommerce.order.infrastructure.persistence.OrderRepository;
+import com.ecommerce.order.infrastructure.persistence.OutboxEventRepository;
+import com.ecommerce.order.infrastructure.persistence.ProcessedEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,15 +41,31 @@ class OrderServiceTest {
     private OrderRepository orderRepository;
 
     @Mock
+    private OutboxEventRepository outboxEventRepository;
+
+    @Mock
+    private ProcessedEventRepository processedEventRepository;
+
+    @Mock
     private InventoryServiceClient inventoryServiceClient;
 
-    @InjectMocks
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+
     private OrderServiceImpl orderService;
 
     private CreateOrderRequest createOrderRequest;
 
     @BeforeEach
     void setUp() {
+        objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        objectMapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        orderService = new OrderServiceImpl(
+                orderRepository,
+                outboxEventRepository,
+                processedEventRepository,
+                inventoryServiceClient,
+                objectMapper
+        );
         createOrderRequest = new CreateOrderRequest(List.of(
                 new OrderItemRequest(1L, 2, new BigDecimal("49.99"))
         ));

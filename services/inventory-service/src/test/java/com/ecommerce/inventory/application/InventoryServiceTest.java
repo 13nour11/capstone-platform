@@ -2,22 +2,38 @@ package com.ecommerce.inventory.application;
 
 import com.ecommerce.inventory.api.dto.CheckStockResponse;
 import com.ecommerce.inventory.api.dto.StockResponse;
+import com.ecommerce.inventory.domain.OutboxEvent;
+import com.ecommerce.inventory.domain.ProcessedEventId;
+import com.ecommerce.inventory.domain.Reservation;
+import com.ecommerce.inventory.domain.ReservationStatus;
 import com.ecommerce.inventory.domain.Stock;
+import com.ecommerce.inventory.domain.event.OrderItemPayload;
+import com.ecommerce.inventory.domain.event.OrderPlaced;
 import com.ecommerce.inventory.domain.exception.ProductNotFoundException;
+import com.ecommerce.inventory.infrastructure.persistence.OutboxEventRepository;
+import com.ecommerce.inventory.infrastructure.persistence.ProcessedEventRepository;
+import com.ecommerce.inventory.infrastructure.persistence.ReservationRepository;
 import com.ecommerce.inventory.infrastructure.persistence.StockRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -27,13 +43,32 @@ class InventoryServiceTest {
     @Mock
     private StockRepository stockRepository;
 
-    @InjectMocks
+    @Mock
+    private ReservationRepository reservationRepository;
+
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
+
+    @Mock
+    private ProcessedEventRepository processedEventRepository;
+
+    private ObjectMapper objectMapper;
+
     private InventoryServiceImpl inventoryService;
 
     private Stock testStock;
 
     @BeforeEach
     void setUp() {
+        objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        inventoryService = new InventoryServiceImpl(
+                stockRepository,
+                reservationRepository,
+                outboxEventRepository,
+                processedEventRepository,
+                objectMapper
+        );
+
         testStock = Stock.builder()
                 .productId(101L)
                 .available(20)
@@ -109,5 +144,82 @@ class InventoryServiceTest {
 
         assertThat(response.available()).isEqualTo(50);
         verify(stockRepository).save(any(Stock.class));
+    }
+
+    @Test
+    @DisplayName("Saga: Should reserve stock and emit InventoryReserved on OrderPlaced")
+    void shouldReserveStock_whenOrderPlacedAndStockAvailable() {
+        OrderPlaced event = new OrderPlaced(
+                "evt-1",
+                "ord-1",
+                "cust-1",
+                new BigDecimal("100.00"),
+                List.of(new OrderItemPayload(101L, 2, new BigDecimal("50.00"))),
+                Instant.now()
+        );
+
+        when(processedEventRepository.existsById(any(ProcessedEventId.class))).thenReturn(false);
+        when(stockRepository.reserveStockAtomic(101L, 2)).thenReturn(1);
+
+        inventoryService.processOrderPlaced(event);
+
+        verify(reservationRepository).save(any(Reservation.class));
+        ArgumentCaptor<OutboxEvent> outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(outboxCaptor.capture());
+        assertThat(outboxCaptor.getValue().getEventType()).isEqualTo("InventoryReserved");
+        assertThat(outboxCaptor.getValue().getAggregateId()).isEqualTo("ord-1");
+    }
+
+    @Test
+    @DisplayName("Saga: Should emit InventoryReservationFailed when stock cannot be reserved")
+    void shouldEmitReservationFailed_whenInsufficientStock() {
+        OrderPlaced event = new OrderPlaced(
+                "evt-2",
+                "ord-2",
+                "cust-1",
+                new BigDecimal("100.00"),
+                List.of(new OrderItemPayload(101L, 50, new BigDecimal("50.00"))),
+                Instant.now()
+        );
+
+        when(processedEventRepository.existsById(any(ProcessedEventId.class))).thenReturn(false);
+        when(stockRepository.reserveStockAtomic(101L, 50)).thenReturn(0);
+
+        inventoryService.processOrderPlaced(event);
+
+        verify(reservationRepository, never()).save(any(Reservation.class));
+        ArgumentCaptor<OutboxEvent> outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(outboxCaptor.capture());
+        assertThat(outboxCaptor.getValue().getEventType()).isEqualTo("InventoryReservationFailed");
+    }
+
+    @Test
+    @DisplayName("Saga: Should release reserved stock when releaseReservation is called")
+    void shouldReleaseReservedStock() {
+        Reservation reservation = new Reservation("ord-3", 101L, 3, ReservationStatus.RESERVED, Instant.now());
+        when(processedEventRepository.existsById(any(ProcessedEventId.class))).thenReturn(false);
+        when(reservationRepository.findById("ord-3")).thenReturn(Optional.of(reservation));
+        when(stockRepository.releaseStockAtomic(101L, 3)).thenReturn(1);
+
+        inventoryService.releaseReservation("evt-3", "ord-3", "PAYMENT_FAILED");
+
+        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.RELEASED);
+        verify(stockRepository).releaseStockAtomic(101L, 3);
+        verify(reservationRepository).save(reservation);
+    }
+
+    @Test
+    @DisplayName("NFR-05 Sweeper: Should release expired reservations older than TTL")
+    void shouldReleaseExpiredReservations() {
+        Reservation reservation = new Reservation("ord-expired", 101L, 2, ReservationStatus.RESERVED, Instant.now().minusSeconds(40));
+        when(reservationRepository.findByStatusAndCreatedAtBefore(eq(ReservationStatus.RESERVED), any(Instant.class)))
+                .thenReturn(List.of(reservation));
+        when(stockRepository.releaseStockAtomic(101L, 2)).thenReturn(1);
+
+        int count = inventoryService.releaseExpiredReservations(30);
+
+        assertThat(count).isEqualTo(1);
+        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.RELEASED);
+        verify(stockRepository).releaseStockAtomic(101L, 2);
     }
 }

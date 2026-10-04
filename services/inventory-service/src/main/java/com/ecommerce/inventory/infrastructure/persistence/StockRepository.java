@@ -14,4 +14,14 @@ public interface StockRepository extends JpaRepository<Stock, Long> {
     @Query("UPDATE Stock s SET s.available = s.available - :quantity, s.reserved = s.reserved + :quantity " +
            "WHERE s.productId = :productId AND s.available >= :quantity")
     int reserveStockAtomic(@Param("productId") Long productId, @Param("quantity") int quantity);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE Stock s SET s.available = s.available + :quantity, s.reserved = s.reserved - :quantity " +
+           "WHERE s.productId = :productId AND s.reserved >= :quantity")
+    int releaseStockAtomic(@Param("productId") Long productId, @Param("quantity") int quantity);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE Stock s SET s.reserved = s.reserved - :quantity " +
+           "WHERE s.productId = :productId AND s.reserved >= :quantity")
+    int confirmStockAtomic(@Param("productId") Long productId, @Param("quantity") int quantity);
 }

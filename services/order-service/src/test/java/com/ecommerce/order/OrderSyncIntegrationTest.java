@@ -41,6 +41,9 @@ class OrderSyncIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private org.springframework.kafka.core.KafkaTemplate<String, String> kafkaTemplate;
+
     @Test
     @DisplayName("End-to-end: should place order when inventory returns available: true")
     void shouldPlaceOrder_whenInventoryStockAvailable() throws Exception {

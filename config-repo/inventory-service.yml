@@ -18,6 +18,30 @@ spring:
     enabled: true
     baseline-on-migrate: true
     locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+    consumer:
+      group-id: inventory-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+inventory:
+  outbox:
+    poll-interval-ms: 500
+  reservation:
+    ttl-seconds: 30
+  sweeper:
+    fixed-delay-ms: 10000
+  kafka:
+    topics:
+      order-events: order-events
+      inventory-events: inventory-events
+      payment-events: payment-events
 
 eureka:
   client:

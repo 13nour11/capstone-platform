@@ -6,6 +6,10 @@ D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\ma
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\api\OrderController.java
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\application\OrderService.java
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\application\OrderServiceImpl.java
+D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\event\OrderCancelled.java
+D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\event\OrderConfirmed.java
+D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\event\OrderItemPayload.java
+D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\event\OrderPlaced.java
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\exception\IllegalOrderStateException.java
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\exception\OrderNotFoundException.java
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\exception\OutOfStockException.java
@@ -13,8 +17,16 @@ D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\ma
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\Order.java
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\OrderItem.java
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\OrderStatus.java
+D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\OutboxEvent.java
+D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\OutboxStatus.java
+D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\ProcessedEvent.java
+D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\domain\ProcessedEventId.java
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\infrastructure\client\dto\CheckStockResponse.java
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\infrastructure\client\InventoryClient.java
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\infrastructure\client\InventoryServiceClient.java
+D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\infrastructure\kafka\OrderKafkaListener.java
+D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\infrastructure\outbox\OutboxPublisher.java
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\infrastructure\persistence\OrderRepository.java
+D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\infrastructure\persistence\OutboxEventRepository.java
+D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\infrastructure\persistence\ProcessedEventRepository.java
 D:\Github\Capstone Microservices\capstone-platform\services\order-service\src\main\java\com\ecommerce\order\OrderServiceApplication.java

@@ -12,4 +12,8 @@ public interface OrderService {
     OrderResponse getOrderById(String orderId);
 
     List<OrderResponse> getOrdersByCustomerId(String customerId);
+
+    void confirmOrder(String eventId, String orderId);
+
+    void cancelOrder(String eventId, String orderId, String reason);
 }
