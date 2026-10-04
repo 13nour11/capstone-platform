@@ -6,19 +6,19 @@ spring:
     name: eureka-server
 
 eureka:
+  instance:
+    hostname: localhost
   client:
     register-with-eureka: false
     fetch-registry: false
-  server:
-    # Single node in dev/kind: keep self-preservation off so stopped instances disappear quickly
-    enable-self-preservation: false
+    service-url:
+      defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka/
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health,info,metrics
   endpoint:
     health:
-      probes:
-        enabled: true
+      show-details: always
