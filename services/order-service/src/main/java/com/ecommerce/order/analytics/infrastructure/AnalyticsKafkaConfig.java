@@ -2,6 +2,7 @@ package com.ecommerce.order.analytics.infrastructure;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.DisposableBean;
@@ -29,6 +30,8 @@ public class AnalyticsKafkaConfig implements DisposableBean {
     public static final String CONTAINER_FACTORY = "analyticsKafkaListenerContainerFactory";
     private static final long RETRY_INTERVAL_MS = 1_000L;
     private static final long MAX_RETRIES = 3L;
+    private static final String DLT_SUFFIX = ".DLT";
+    private static final int ANY_PARTITION = -1;
 
     private final DefaultKafkaProducerFactory<String, String> deadLetterProducerFactory;
     private final KafkaProperties kafkaProperties;
@@ -50,7 +53,8 @@ public class AnalyticsKafkaConfig implements DisposableBean {
         consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(
-                new DeadLetterPublishingRecoverer(new KafkaTemplate<>(deadLetterProducerFactory)),
+                new DeadLetterPublishingRecoverer(new KafkaTemplate<>(deadLetterProducerFactory),
+                        (record, exception) -> new TopicPartition(record.topic() + DLT_SUFFIX, ANY_PARTITION)),
                 new FixedBackOff(RETRY_INTERVAL_MS, MAX_RETRIES));
         errorHandler.addNotRetryableExceptions(InvalidOrderEventException.class);
 

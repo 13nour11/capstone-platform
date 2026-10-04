@@ -45,11 +45,11 @@ class PaymentIdempotencyIT {
         String orderId = "order-" + UUID.randomUUID();
         String key = UUID.randomUUID().toString();
 
-        MvcResult first = mockMvc.perform(payment(key, orderId, "49.99"))
+        MvcResult first = mockMvc.perform(payment(key, orderId, "49.90"))
                 .andExpect(status().isCreated())
                 .andExpect(header().doesNotExist(PaymentController.IDEMPOTENT_REPLAYED))
                 .andReturn();
-        MvcResult second = mockMvc.perform(payment(key, orderId, "49.990"))
+        MvcResult second = mockMvc.perform(payment(key, orderId, "49.9"))
                 .andExpect(status().isCreated())
                 .andExpect(header().string(PaymentController.IDEMPOTENT_REPLAYED, "true"))
                 .andReturn();

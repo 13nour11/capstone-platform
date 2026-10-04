@@ -4,6 +4,7 @@ import com.ecommerce.payment.domain.event.Topics;
 import com.ecommerce.payment.infrastructure.outbox.OutboxHeaders;
 import com.ecommerce.payment.infrastructure.outbox.OutboxPublisher;
 import com.ecommerce.payment.support.PostgresTestcontainersConfig;
+import com.jayway.jsonpath.JsonPath;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -66,7 +67,7 @@ class PaymentSagaKafkaIT {
 
         ConsumerRecord<String, String> record = recordFor(Topics.PAYMENT_EVENTS, orderId);
         assertThat(header(record, OutboxHeaders.EVENT_TYPE)).isEqualTo("PaymentCompleted");
-        assertThat(record.value()).contains("\"orderId\":\"" + orderId + "\"");
+        assertThat(JsonPath.<String>read(record.value(), "$.orderId")).isEqualTo(orderId);
         assertThat(count("SELECT count(*) FROM payments WHERE order_id = ?", orderId)).isEqualTo(1);
         assertThat(count("SELECT count(*) FROM outbox_event WHERE aggregate_id = ?", orderId)).isEqualTo(1);
     }

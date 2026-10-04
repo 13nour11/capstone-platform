@@ -2,6 +2,7 @@ package com.ecommerce.payment.application;
 
 import com.ecommerce.payment.domain.event.InventoryReserved;
 import com.ecommerce.payment.support.PostgresTestcontainersConfig;
+import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,9 +37,9 @@ class HandleInventoryReservedIT {
 
         assertThat(paymentStatuses(event.orderId())).containsExactly("COMPLETED");
         assertThat(outboxTypes(event.orderId())).containsExactly("PaymentCompleted");
-        assertThat(outboxPayload(event.orderId()))
-                .contains("\"orderId\":\"" + event.orderId() + "\"")
-                .contains("\"totalAmount\":75.5");
+        String payload = outboxPayload(event.orderId());
+        assertThat(JsonPath.<String>read(payload, "$.orderId")).isEqualTo(event.orderId());
+        assertThat(JsonPath.<Double>read(payload, "$.totalAmount")).isEqualTo(75.5);
     }
 
     @Test
