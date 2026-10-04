@@ -1,0 +1,24 @@
+server:
+  port: 8081
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/product_db
+    username: product_user
+    password: ${PRODUCT_DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: 6379
+      # Fail fast so a Redis outage degrades to DB reads instead of slow requests
+      timeout: 500ms
+      connect-timeout: 500ms
+  cache:
+    type: redis
+
+product:
+  cache:
+    ttl: 10m
