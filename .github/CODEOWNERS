@@ -1,0 +1,40 @@
+# Replace @member-a/b/c with GitHub usernames (docs/TEAM-GUIDE.md §8). The last matching line wins.
+*                                                   @member-a @member-b @member-c
+
+/pom.xml                                            @member-a
+/.github/                                           @member-a
+/.github/workflows/                                 @member-c
+/README.md                                          @member-b
+
+/platform/api-gateway/                              @member-a
+/platform/config-server/                            @member-b
+/platform/eureka-server/                            @member-b
+/services/product-service/                          @member-a
+/services/notification-service/                     @member-a
+/services/inventory-service/                        @member-b
+/services/order-service/                            @member-b
+/services/order-service/src/main/java/com/ecommerce/order/analytics/   @member-c
+/services/order-service/src/test/java/com/ecommerce/order/analytics/   @member-c
+/services/payment-service/                          @member-c
+**/Dockerfile                                       @member-c
+
+/config-repo/                                       @member-b
+/config-repo/api-gateway.yml                        @member-a
+/config-repo/product-service.yml                    @member-a
+/config-repo/notification-service.yml               @member-a
+/config-repo/payment-service.yml                    @member-c
+
+/deployment/docker/                                 @member-c
+/deployment/docker/keycloak/                        @member-a
+/deployment/kubernetes/                             @member-c
+/deployment/argocd/                                 @member-a
+/deployment/helm/                                   @member-a
+/scripts/verify-l0.sh                               @member-b
+/scripts/create-k8s-secrets.sh                      @member-c
+/k6/                                                @member-a
+
+/docs/                                              @member-a @member-b @member-c
+/docs/BACKLOG.md                                    @member-b
+/docs/FINAL-REPORT.md                               @member-b
+/docs/TEAM-CHARTER.md                               @member-a
+/docs/PERFORMANCE-REPORT.md                         @member-a
