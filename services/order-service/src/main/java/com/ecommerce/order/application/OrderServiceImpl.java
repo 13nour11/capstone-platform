@@ -17,7 +17,7 @@ import com.ecommerce.order.domain.event.OrderItemPayload;
 import com.ecommerce.order.domain.event.OrderPlaced;
 import com.ecommerce.order.domain.exception.OrderNotFoundException;
 import com.ecommerce.order.infrastructure.client.InventoryServiceClient;
-import com.ecommerce.order.infrastructure.client.ProductServiceClient;
+import com.ecommerce.order.infrastructure.client.CachedProductPrices;
 import com.ecommerce.order.infrastructure.persistence.OrderRepository;
 import com.ecommerce.order.infrastructure.persistence.OutboxEventRepository;
 import com.ecommerce.order.infrastructure.persistence.ProcessedEventRepository;
@@ -50,7 +50,7 @@ public class OrderServiceImpl implements OrderService {
     private final OutboxEventRepository outboxEventRepository;
     private final ProcessedEventRepository processedEventRepository;
     private final InventoryServiceClient inventoryServiceClient;
-    private final ProductServiceClient productServiceClient;
+    private final CachedProductPrices productPrices;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
     private final Tracer tracer;
@@ -60,7 +60,7 @@ public class OrderServiceImpl implements OrderService {
                             OutboxEventRepository outboxEventRepository,
                             ProcessedEventRepository processedEventRepository,
                             InventoryServiceClient inventoryServiceClient,
-                            ProductServiceClient productServiceClient,
+                            CachedProductPrices productPrices,
                             ObjectMapper objectMapper,
                             TransactionTemplate transactionTemplate,
                             Tracer tracer,
@@ -69,7 +69,7 @@ public class OrderServiceImpl implements OrderService {
         this.outboxEventRepository = outboxEventRepository;
         this.processedEventRepository = processedEventRepository;
         this.inventoryServiceClient = inventoryServiceClient;
-        this.productServiceClient = productServiceClient;
+        this.productPrices = productPrices;
         this.objectMapper = objectMapper;
         this.transactionTemplate = transactionTemplate;
         this.tracer = tracer;
@@ -85,7 +85,7 @@ public class OrderServiceImpl implements OrderService {
         Map<Long, BigDecimal> prices = new LinkedHashMap<>();
         for (OrderItemRequest item : request.items()) {
             inventoryServiceClient.verifyStockAvailability(item.productId(), item.quantity());
-            prices.computeIfAbsent(item.productId(), productServiceClient::currentPrice);
+            prices.computeIfAbsent(item.productId(), productPrices::currentPrice);
         }
 
         // 2. Persist order and outbox event in ONE database transaction. Called through the

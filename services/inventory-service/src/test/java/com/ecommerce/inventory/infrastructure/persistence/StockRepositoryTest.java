@@ -127,6 +127,21 @@ class StockRepositoryTest {
     }
 
     @Test
+    @DisplayName("A product with no stock row yet can be stocked for the first time")
+    void shouldCreateStockRowForAProductThatHasNoneYet() {
+        Stock created = stockRepository.save(Stock.builder()
+                .productId(987L)
+                .available(25)
+                .reserved(0)
+                .build());
+
+        assertThat(created.getProductId()).isEqualTo(987L);
+        assertThat(stockRepository.findById(987L)).get()
+                .extracting(Stock::getAvailable)
+                .isEqualTo(25);
+    }
+
+    @Test
     @DisplayName("Multi-item order keeps one reservation row per product")
     void shouldStoreOneReservationPerProduct() {
         Instant now = Instant.now();

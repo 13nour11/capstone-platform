@@ -92,12 +92,13 @@ public class InventoryServiceImpl implements InventoryService {
     @Transactional
     public StockResponse adjustStock(Long productId, int newAvailable) {
         log.info("Adjusting stock for productId: {} to new available quantity: {}", productId, newAvailable);
+        // The version stays null on a brand-new row: setting it to 0 makes Spring Data treat the
+        // entity as detached and issue an UPDATE for a row that does not exist yet (500).
         Stock stock = stockRepository.findById(productId)
                 .orElseGet(() -> Stock.builder()
                         .productId(productId)
                         .available(0)
                         .reserved(0)
-                        .version(0L)
                         .build());
         stock.adjustAvailable(newAvailable);
         Stock saved = stockRepository.save(stock);

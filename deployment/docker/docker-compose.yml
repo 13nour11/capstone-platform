@@ -206,6 +206,10 @@ services:
     environment:
       <<: *spring-env
       SPRING_DATA_REDIS_HOST: redis
+      # Defaults match FR-13 (20/s, burst 40). A k6 run drives far more than that from one source
+      # address, so raise these for the run or the test measures the limiter, not the platform.
+      GATEWAY_RATE_LIMIT_REPLENISH_RATE: ${GATEWAY_RATE_LIMIT_REPLENISH_RATE:-20}
+      GATEWAY_RATE_LIMIT_BURST_CAPACITY: ${GATEWAY_RATE_LIMIT_BURST_CAPACITY:-40}
     depends_on:
       eureka-server:
         condition: service_healthy

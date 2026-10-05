@@ -2,6 +2,9 @@ package com.ecommerce.order.application;
 
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
+import com.ecommerce.order.domain.OutboxEvent;
+import org.mockito.ArgumentCaptor;
+import java.time.Duration;
 import com.ecommerce.order.api.dto.CreateOrderRequest;
 import com.ecommerce.order.api.dto.OrderItemRequest;
 import com.ecommerce.order.api.dto.OrderResponse;
@@ -11,7 +14,7 @@ import com.ecommerce.order.domain.exception.OrderNotFoundException;
 import com.ecommerce.order.domain.exception.OutOfStockException;
 import com.ecommerce.order.domain.exception.ServiceUnavailableException;
 import com.ecommerce.order.infrastructure.client.InventoryServiceClient;
-import com.ecommerce.order.infrastructure.client.ProductServiceClient;
+import com.ecommerce.order.infrastructure.client.CachedProductPrices;
 import com.ecommerce.order.infrastructure.persistence.OrderRepository;
 import com.ecommerce.order.infrastructure.persistence.OutboxEventRepository;
 import com.ecommerce.order.infrastructure.persistence.ProcessedEventRepository;
@@ -33,6 +36,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -57,7 +61,7 @@ class OrderServiceTest {
     private InventoryServiceClient inventoryServiceClient;
 
     @Mock
-    private ProductServiceClient productServiceClient;
+    private CachedProductPrices productPrices;
 
     private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
@@ -74,7 +78,7 @@ class OrderServiceTest {
                 outboxEventRepository,
                 processedEventRepository,
                 inventoryServiceClient,
-                productServiceClient,
+                productPrices,
                 objectMapper,
                 directTransactionTemplate(),
                 Tracer.NOOP,
@@ -84,7 +88,7 @@ class OrderServiceTest {
                 new OrderItemRequest(1L, 2)
         ));
         // The catalogue prices the order; tests that fail before pricing simply never use this.
-        lenient().when(productServiceClient.currentPrice(1L)).thenReturn(new BigDecimal("49.99"));
+        lenient().when(productPrices.currentPrice(1L)).thenReturn(new BigDecimal("49.99"));
     }
 
     /** Runs the callback straight through, so the test exercises the real transaction boundary call. */
@@ -172,6 +176,23 @@ class OrderServiceTest {
         assertThatThrownBy(() -> orderService.getOrderForCustomer("ord-999", "cust-1", false))
                 .isInstanceOf(OrderNotFoundException.class)
                 .hasMessageContaining("ord-999");
+    }
+
+    @Test
+    @DisplayName("F10: a stuck PENDING order is cancelled and OrderCancelled is queued to the outbox")
+    void shouldCancelOrdersPendingLongerThanTimeout() {
+        Order stuck = order("cust-1");
+        when(orderRepository.findByStatusAndCreatedAtBefore(eq(OrderStatus.PENDING), any(Instant.class)))
+                .thenReturn(List.of(stuck));
+
+        int cancelled = orderService.cancelOrdersPendingLongerThan(Duration.ofMinutes(10));
+
+        assertThat(cancelled).isEqualTo(1);
+        assertThat(stuck.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        ArgumentCaptor<OutboxEvent> outbox = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(outbox.capture());
+        assertThat(outbox.getValue().getEventType()).isEqualTo("OrderCancelled");
+        assertThat(outbox.getValue().getPayload()).contains("SAGA_TIMEOUT");
     }
 
     private static Order order(String customerId) {
