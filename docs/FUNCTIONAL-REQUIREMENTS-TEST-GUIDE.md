@@ -27,6 +27,87 @@ $ADMIN_TOKEN = (curl.exe -s -X POST "http://localhost:8180/realms/ecommerce-plat
   -d "client_id=api-gateway" `
   -d "username=admin" `
   -d "password=password" | ConvertFrom-Json).access_token
+---
+
+## Step-by-Step Platform Execution & Verification Lifecycle
+
+Follow this deterministic run guide to bootstrap the full platform from `docker compose up` to running and validating all test cases.
+
+### Phase 1: Environment Readiness & Port Clearance
+Ensure Docker Desktop (Linux containers mode), OpenJDK 17+, Maven 3.9+, and PowerShell are operational.
+Verify required ports are available:
+- **Infrastructure:** `5432` (PostgreSQL), `9092` (Kafka), `6379` (Redis), `8180` (Keycloak), `9411` (Zipkin), `9090` (Prometheus), `3000` (Grafana).
+- **Platform & Services:** `8888` (Config Server), `8761` (Eureka Registry), `8080` (API Gateway), `8081` (Product), `8082` (Order), `8083` (Payment), `8084` (Inventory), `8085` (Notification).
+
+```powershell
+# Port clearance check in PowerShell:
+5432, 9092, 6379, 8180, 9411, 9090, 3000, 8888, 8761, 8080, 8081, 8082, 8083, 8084, 8085 | ForEach-Object {
+  if (Get-NetTCPConnection -LocalPort $_ -ErrorAction SilentlyContinue) { Write-Warning "Port $_ in use!" }
+}
+```
+
+### Phase 2: Multi-Module Maven Reactor Build
+Compile and package the parent and all 8 child modules:
+```powershell
+mvn clean install -DskipTests
+```
+*Expected: `BUILD SUCCESS` across all 9 modules (0 errors, 0 failures).*
+
+### Phase 3: Infrastructure Backbone Startup (Docker Compose)
+Start the 8 persistence, identity, messaging, and telemetry containers:
+```powershell
+# 1. Spin up infrastructure:
+docker compose -f deployment/docker/docker-compose.yml up -d postgres zookeeper kafka redis keycloak zipkin prometheus grafana
+
+# 2. Wait ~25s for Keycloak and Kafka to complete health checks:
+docker compose -f deployment/docker/docker-compose.yml ps
+
+# 3. Quick readiness checks:
+docker exec -it postgres pg_isready -U postgres
+curl.exe -s http://localhost:8180/realms/ecommerce-platform | Select-String "ecommerce-platform"
+```
+
+### Phase 4: Microservices Startup (Two Deployment Modes)
+
+#### Mode A: Full Containerized Stack (Single Command)
+```powershell
+docker compose -f deployment/docker/docker-compose.yml up -d --build
+```
+*Spins up all 16 containers (8 infra + config-server + eureka-server + api-gateway + 5 domain services).*
+
+#### Mode B: Local Terminal Presentation Mode (Ordered Spring Boot Run)
+For live presentation defense with live terminal logs:
+- **Terminal 1 (L0 Config):** `cd platform/config-server ; mvn spring-boot:run` (wait until `Started ConfigServerApplication`)
+- **Terminal 2 (L0 Registry):** `cd platform/eureka-server ; mvn spring-boot:run` (wait until `Started EurekaServerApplication`)
+- **Terminal 3 (L1 Gateway):** `cd platform/api-gateway ; mvn spring-boot:run`
+- **Terminal 4 (L1 Product):** `cd services/product-service ; mvn spring-boot:run`
+- **Terminal 5 (L2 Inventory):** `cd services/inventory-service ; mvn spring-boot:run`
+- **Terminal 6 (L2 Order):** `cd services/order-service ; mvn spring-boot:run`
+- **Terminal 7 (L2 Payment):** `cd services/payment-service ; mvn spring-boot:run`
+- **Terminal 8 (L3 Notification):** `cd services/notification-service ; mvn spring-boot:run`
+
+### Phase 5: Verification Gate & Keycloak Token Setup
+Verify Eureka registration and obtain JWT tokens:
+- Eureka Dashboard: `http://localhost:8761` (verify all 6 instances show `UP`).
+- Acquire `$CUSTOMER_TOKEN` and `$ADMIN_TOKEN` using the PowerShell commands above.
+
+### Phase 6: Sequential End-to-End Test Execution Matrix
+Run tests in strict order to prevent state conflicts:
+1. **FR-01 & FR-04:** Public Catalog (`GET /products` -> 200 OK) vs Route Protection (`GET /orders` -> 401 Unauthorized)
+2. **FR-02, FR-03 & FR-15:** RBAC Check (`POST /products` Customer -> 403 Forbidden vs Admin -> 201 Created), projection with category name, and Redis cache eviction on write.
+3. **FR-06:** Synchronous Fail-Fast Pre-Check (`POST /orders` with quantity 9999 -> 422 Unprocessable Entity, zero DB transactions opened).
+4. **FR-05, FR-07, FR-08 & FR-09:** Choreographed Saga (`POST /orders` qty 2 -> 201 PENDING, stock reserved, idempotent payment, order CONFIRMED).
+5. **FR-10 & FR-11:** Customer Isolation (`GET /orders` -> strictly customer1) and Notification dispatch logs.
+6. **FR-12, FR-13 & FR-14:** Admin stock adjust (`PUT /inventory/1`), Gateway Rate Limiting (45 rapid bursts -> 429), and service-to-service client credentials token.
+7. **FR-16 (Bonus B2):** Order Analytics CQRS summary (`GET /api/v1/analytics/summary`) + Grafana 3-panel dashboard at `http://localhost:3000`.
+
+### Phase 7: Observability Verification & Clean Teardown
+- **Zipkin Traces:** `http://localhost:9411` (verify W3C `traceparent` across HTTP, Outbox, and Kafka)
+- **Prometheus Metrics:** `http://localhost:9090` (verify gateway throughput and JVM health)
+- **Grafana Dashboards:** `http://localhost:3000` (admin/admin - view Order Analytics)
+- **Clean Platform Teardown:**
+```powershell
+docker compose -f deployment/docker/docker-compose.yml down -v
 ```
 
 ---

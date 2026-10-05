@@ -259,6 +259,37 @@
       white-space: pre-wrap;
       word-break: break-all;
     }
+
+    /* Step Cards & Execution Guide */
+    .step-box {
+      border: 1px solid #cbd5e1;
+      border-left: 4.5px solid #0284c7;
+      background: #f8fafc;
+      border-radius: 4px;
+      padding: 7px 10px;
+      margin-bottom: 8px;
+      page-break-inside: avoid;
+    }
+    .step-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 3px;
+    }
+    .step-title {
+      font-weight: 700;
+      font-size: 8.8pt;
+      color: #0f172a;
+    }
+    .step-tag {
+      background: #e0f2fe;
+      color: #0369a1;
+      font-size: 7.2pt;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 3px;
+      border: 1px solid #bae6fd;
+    }
   </style>
 </head>
 <body>
@@ -375,10 +406,191 @@
   </div>
 
   <!-- ========================================================================= -->
-  <!-- 2. SAGA PATTERN & ARCHITECTURAL INVARIANTS                                 -->
+  <!-- 2. PLATFORM EXECUTION & VERIFICATION LIFECYCLE (PART A: PHASES 1-4)       -->
   <!-- ========================================================================= -->
   <div class="page page-break">
-    <h2 class="section-title">2. Choreographed Saga & Core Invariants</h2>
+    <h2 class="section-title">2. Platform Execution &amp; Verification Lifecycle (Phases 1-4)</h2>
+    <p>
+      Deterministic operational guide to bootstrap the distributed architecture from source code to healthy, running microservices across Docker and local JVM runtimes.
+    </p>
+
+    <!-- Phase 1 -->
+    <div class="step-box">
+      <div class="step-header">
+        <span class="step-title">Phase 1: Environment Readiness & Port Clearance</span>
+        <span class="step-tag">PREREQUISITE</span>
+      </div>
+      <p>Ensure Docker Desktop (Linux containers mode), OpenJDK 17+, Maven 3.9+, and PowerShell / Bash are operational. Verify environment secrets file exists at <code>deployment/docker/.env</code> (copied from <code>.env.example</code>).</p>
+      <pre># Check required ports are free:
+5432, 9092, 6379, 8180, 9411, 9090, 3000, 8888, 8761, 8080, 8081, 8082, 8083, 8084, 8085 | ForEach-Object {
+  if (Get-NetTCPConnection -LocalPort $_ -ErrorAction SilentlyContinue) { Write-Warning "Port $_ in use!" }
+}</pre>
+    </div>
+
+    <!-- Phase 2 -->
+    <div class="step-box">
+      <div class="step-header">
+        <span class="step-title">Phase 2: Multi-Module Maven Reactor Build</span>
+        <span class="step-tag">COMPILATION</span>
+      </div>
+      <p>Compile and install all 9 modules from the repository root. This resolves parent dependencies, compiles domain code, and packages Spring Boot executable JARs.</p>
+      <pre>mvn clean install -DskipTests
+# Expected Output: BUILD SUCCESS across all 9 modules (0 errors, 0 failures)</pre>
+    </div>
+
+    <!-- Phase 3 -->
+    <div class="step-box">
+      <div class="step-header">
+        <span class="step-title">Phase 3: Infrastructure Backbone Startup (Docker Compose)</span>
+        <span class="step-tag">INFRASTRUCTURE</span>
+      </div>
+      <p>Launch all 8 persistence, identity, messaging, and telemetry containers. Keycloak automatically imports <code>realm-export.json</code> on startup.</p>
+      <pre># 1. Start infrastructure services:
+docker compose -f deployment/docker/docker-compose.yml up -d postgres zookeeper kafka redis keycloak zipkin prometheus grafana
+
+# 2. Wait 25s for Keycloak and Kafka to complete health probes:
+docker compose -f deployment/docker/docker-compose.yml ps
+
+# 3. Verify PostgreSQL and Keycloak readiness:
+docker exec -it postgres pg_isready -U postgres
+curl.exe -s http://localhost:8180/realms/ecommerce-platform | Select-String "ecommerce-platform"</pre>
+    </div>
+
+    <!-- Phase 4 -->
+    <div class="step-box">
+      <div class="step-header">
+        <span class="step-title">Phase 4: Microservices Startup (Two Deployment Modes)</span>
+        <span class="step-tag">SERVICES</span>
+      </div>
+      <p>Choose between pure containerized deployment or layered local development mode:</p>
+      
+      <p><strong>Mode A: Full Containerized Stack (Single Command):</strong></p>
+      <pre>docker compose -f deployment/docker/docker-compose.yml up -d --build
+# Spins up all 16 containers (infra + config-server + eureka + gateway + 5 services).</pre>
+
+      <p><strong>Mode B: Local Terminal Presentation Mode (Ordered Spring Boot Run):</strong></p>
+      <pre># Terminal 1 (L0 Config):    cd platform/config-server    ; mvn spring-boot:run
+# Terminal 2 (L0 Registry):  cd platform/eureka-server    ; mvn spring-boot:run
+# Terminal 3 (L1 Gateway):   cd platform/api-gateway      ; mvn spring-boot:run
+# Terminal 4 (L1 Product):   cd services/product-service  ; mvn spring-boot:run
+# Terminal 5 (L2 Inventory): cd services/inventory-service; mvn spring-boot:run
+# Terminal 6 (L2 Order):     cd services/order-service    ; mvn spring-boot:run
+# Terminal 7 (L2 Payment):   cd services/payment-service  ; mvn spring-boot:run
+# Terminal 8 (L3 Notif):     cd services/notification-service; mvn spring-boot:run</pre>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 2. PLATFORM EXECUTION & VERIFICATION LIFECYCLE (PART B: PHASES 5-7)       -->
+  <!-- ========================================================================= -->
+  <div class="page page-break">
+    <h2 class="section-title">2. Platform Execution &amp; Verification Lifecycle (Phases 5-7)</h2>
+
+    <!-- Phase 5 -->
+    <div class="step-box">
+      <div class="step-header">
+        <span class="step-title">Phase 5: Platform Verification Gate & Token Acquisition</span>
+        <span class="step-tag">AUTH & GATE</span>
+      </div>
+      <p>Verify that Eureka has registered all 6 application instances and acquire active JWT access tokens for testing:</p>
+      <pre># 1. Verify Eureka registry (Expected: 6 UP instances):
+curl.exe -s http://localhost:8761/eureka/apps | Select-String "name"
+
+# 2. Acquire CUSTOMER JWT Token:
+$CUSTOMER_TOKEN = (curl.exe -s -X POST "http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/token" `
+  -H "Content-Type: application/x-www-form-urlencoded" `
+  -d "grant_type=password&client_id=api-gateway&username=customer1&password=password" | ConvertFrom-Json).access_token
+
+# 3. Acquire ADMIN JWT Token:
+$ADMIN_TOKEN = (curl.exe -s -X POST "http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/token" `
+  -H "Content-Type: application/x-www-form-urlencoded" `
+  -d "grant_type=password&client_id=api-gateway&username=admin&password=password" | ConvertFrom-Json).access_token</pre>
+    </div>
+
+    <!-- Phase 6 -->
+    <div class="step-box">
+      <div class="step-header">
+        <span class="step-title">Phase 6: Chronological Test Execution Matrix (All Requirements)</span>
+        <span class="step-tag">TEST SUITE RUNNER</span>
+      </div>
+      <p>Execute tests in the following strict chronological sequence to validate the entire platform flow without state conflicts:</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Seq</th>
+            <th>Requirement Focus</th>
+            <th>Action / Test Command</th>
+            <th>Expected Verification Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>1</strong></td>
+            <td><strong>FR-01, FR-04</strong><br>Public vs Protected</td>
+            <td><code>curl.exe http://localhost:8080/api/v1/products</code><br><code>curl.exe http://localhost:8080/api/v1/orders</code></td>
+            <td>Public products returns <strong>200 OK</strong>.<br>Orders without token returns <strong>401 Unauthorized</strong>.</td>
+          </tr>
+          <tr>
+            <td><strong>2</strong></td>
+            <td><strong>FR-02, FR-03, FR-15</strong><br>RBAC & Projection</td>
+            <td><code>POST /api/v1/products</code> (Customer vs Admin)<br><code>GET /api/v1/products/1</code></td>
+            <td>Customer token returns <strong>403 Forbidden</strong>.<br>Admin token returns <strong>201 Created</strong>. Detail includes <code>categoryName</code>.</td>
+          </tr>
+          <tr>
+            <td><strong>3</strong></td>
+            <td><strong>FR-06</strong><br>Sync Stock Fail-Fast</td>
+            <td><code>POST /api/v1/orders</code> with quantity = 9999 units</td>
+            <td>OpenFeign pre-check rejects with <strong>422 Unprocessable Entity</strong> before opening DB transaction.</td>
+          </tr>
+          <tr>
+            <td><strong>4</strong></td>
+            <td><strong>FR-05, FR-07, FR-08, FR-09</strong><br>Choreographed Saga</td>
+            <td><code>POST /api/v1/orders</code> with valid quantity (2 units)<br><code>GET /api/v1/inventory/1</code><br><code>GET /api/v1/orders/{orderId}</code></td>
+            <td>Order created with <strong>201 PENDING</strong>.<br>Stock decremented by 2, reserved +2.<br>Payment processes idempotently.<br>Order updates to <strong>CONFIRMED</strong>.</td>
+          </tr>
+          <tr>
+            <td><strong>5</strong></td>
+            <td><strong>FR-10, FR-11</strong><br>Isolation & Notif</td>
+            <td><code>GET /api/v1/orders</code> (as customer1)<br><code>docker compose logs notification-service --tail=20</code></td>
+            <td>Returns strictly customer1's orders.<br>Logs show <em>"Notification dispatched: Order CONFIRMED"</em>.</td>
+          </tr>
+          <tr>
+            <td><strong>6</strong></td>
+            <td><strong>FR-12, FR-13, FR-14</strong><br>Ops & Rate Limit</td>
+            <td><code>PUT /api/v1/inventory/1</code> (Admin)<br>45 rapid burst curls to Gateway<br>Fetch token with <code>client_credentials</code></td>
+            <td>Stock updated to 150 (<strong>200 OK</strong>).<br>Burst triggers <strong>429 Too Many Requests</strong>.<br>Service account token has role <code>SERVICE</code>.</td>
+          </tr>
+          <tr>
+            <td><strong>7</strong></td>
+            <td><strong>FR-16 (Bonus B2)</strong><br>Analytics & CQRS</td>
+            <td><code>GET /api/v1/analytics/summary?hours=24</code><br>Open <code>http://localhost:3000</code></td>
+            <td>Returns live metrics (orders/hr, revenue, cancellation ratio). Grafana shows 3 live panels.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Phase 7 -->
+    <div class="step-box">
+      <div class="step-header">
+        <span class="step-title">Phase 7: Observability Verification & Clean Teardown</span>
+        <span class="step-tag">TELEMETRY & CLEANUP</span>
+      </div>
+      <p>Inspect distributed traces and metrics, then gracefully stop and clean containers:</p>
+      <pre># 1. Distributed Tracing:  http://localhost:9411 (Zipkin - verify traceparent spans across HTTP and Kafka)
+# 2. Prometheus Metrics:   http://localhost:9090 (Verify gateway and JVM metrics)
+# 3. Grafana Dashboards:   http://localhost:3000 (admin / admin - view Order Analytics)
+# 4. Graceful Platform Teardown:
+docker compose -f deployment/docker/docker-compose.yml down -v</pre>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 3. SAGA PATTERN & ARCHITECTURAL INVARIANTS                                 -->
+  <!-- ========================================================================= -->
+  <div class="page page-break">
+    <h2 class="section-title">3. Choreographed Saga & Core Invariants</h2>
 
     <h3 class="sub-title">Two Paths: Synchronous Fail-Fast vs. Asynchronous Consistency</h3>
     <p>
@@ -422,10 +634,10 @@
   </div>
 
   <!-- ========================================================================= -->
-  <!-- 3. FUNCTIONAL REQUIREMENTS: STANDARDIZED 4-PART BREAKDOWN (FR-01 to FR-05)-->
+  <!-- 4. FUNCTIONAL REQUIREMENTS: STANDARDIZED 4-PART BREAKDOWN (FR-01 to FR-05)-->
   <!-- ========================================================================= -->
   <div class="page page-break">
-    <h2 class="section-title">3. Functional Requirements Specification (FR-01 to FR-05)</h2>
+    <h2 class="section-title">4. Functional Requirements Specification (FR-01 to FR-05)</h2>
 
     <!-- FR-01 -->
     <div class="req-card">
@@ -544,10 +756,10 @@ WWW-Authenticate: Bearer
   </div>
 
   <!-- ========================================================================= -->
-  <!-- 3. FUNCTIONAL REQUIREMENTS: STANDARDIZED 4-PART BREAKDOWN (FR-06 to FR-10)-->
+  <!-- 4. FUNCTIONAL REQUIREMENTS: STANDARDIZED 4-PART BREAKDOWN (FR-06 to FR-10)-->
   <!-- ========================================================================= -->
   <div class="page page-break">
-    <h2 class="section-title">3. Functional Requirements Specification (FR-06 to FR-10)</h2>
+    <h2 class="section-title">4. Functional Requirements Specification (FR-06 to FR-10)</h2>
 
     <!-- FR-06 -->
     <div class="req-card">
@@ -662,10 +874,10 @@ Log verifies duplicate event delivery emits exactly ONE PaymentCompleted record.
   </div>
 
   <!-- ========================================================================= -->
-  <!-- 3. FUNCTIONAL REQUIREMENTS: STANDARDIZED 4-PART BREAKDOWN (FR-11 to FR-16)-->
+  <!-- 4. FUNCTIONAL REQUIREMENTS: STANDARDIZED 4-PART BREAKDOWN (FR-11 to FR-16)-->
   <!-- ========================================================================= -->
   <div class="page page-break">
-    <h2 class="section-title">3. Functional Requirements Specification (FR-11 to FR-16)</h2>
+    <h2 class="section-title">4. Functional Requirements Specification (FR-11 to FR-16)</h2>
 
     <!-- FR-11 -->
     <div class="req-card">
@@ -808,10 +1020,10 @@ Grafana Dashboard at http://localhost:3000 displays live panels.</pre>
   </div>
 
   <!-- ========================================================================= -->
-  <!-- 4. NON-FUNCTIONAL REQUIREMENTS & DEFENSE STRATEGY                        -->
+  <!-- 5. NON-FUNCTIONAL REQUIREMENTS & DEFENSE STRATEGY                        -->
   <!-- ========================================================================= -->
   <div class="page page-break">
-    <h2 class="section-title">4. Non-Functional Requirements (NFR-01 to NFR-10)</h2>
+    <h2 class="section-title">5. Non-Functional Requirements (NFR-01 to NFR-10)</h2>
 
     <table>
       <thead>
@@ -886,7 +1098,7 @@ Grafana Dashboard at http://localhost:3000 displays live panels.</pre>
       </tbody>
     </table>
 
-    <h2 class="section-title">5. Examiner Q&amp;A Defense Cheat-Sheet</h2>
+    <h2 class="section-title">6. Examiner Q&amp;A Defense Cheat-Sheet</h2>
 
     <div class="callout">
       <strong>Q1: Why use an OpenFeign stock pre-check if you already have an asynchronous Saga?</strong><br>
