@@ -34,6 +34,10 @@ spec:
           image: openzipkin/zipkin:3
           ports:
             - containerPort: 9411
+          env:
+            # Same as compose: bound the in-memory span store to what the default heap holds
+            - name: MEM_MAX_SPANS
+              value: "20000"
           readinessProbe:
             httpGet:
               path: /health
