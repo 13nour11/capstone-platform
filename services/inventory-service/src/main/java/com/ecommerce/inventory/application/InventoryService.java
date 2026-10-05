@@ -4,6 +4,8 @@ import com.ecommerce.inventory.api.dto.CheckStockResponse;
 import com.ecommerce.inventory.api.dto.StockResponse;
 import com.ecommerce.inventory.domain.event.OrderPlaced;
 
+import java.util.List;
+
 public interface InventoryService {
 
     CheckStockResponse checkStock(Long productId, int quantity);
@@ -12,11 +14,13 @@ public interface InventoryService {
 
     StockResponse adjustStock(Long productId, int newAvailable);
 
+    List<StockResponse> getLowStock();
+
     void processOrderPlaced(OrderPlaced event);
 
     void releaseReservation(String eventId, String orderId, String reason);
 
     void confirmReservation(String eventId, String orderId);
 
-    int releaseExpiredReservations(int ttlSeconds);
+    int releaseReservationsOfCancelledOrders();
 }

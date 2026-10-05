@@ -2,6 +2,7 @@ package com.ecommerce.inventory.application;
 
 import com.ecommerce.inventory.api.dto.CheckStockResponse;
 import com.ecommerce.inventory.api.dto.StockResponse;
+import com.ecommerce.inventory.domain.CancelledOrder;
 import com.ecommerce.inventory.domain.OutboxEvent;
 import com.ecommerce.inventory.domain.ProcessedEventId;
 import com.ecommerce.inventory.domain.Reservation;
@@ -10,6 +11,8 @@ import com.ecommerce.inventory.domain.Stock;
 import com.ecommerce.inventory.domain.event.OrderItemPayload;
 import com.ecommerce.inventory.domain.event.OrderPlaced;
 import com.ecommerce.inventory.domain.exception.ProductNotFoundException;
+import com.ecommerce.inventory.infrastructure.outbox.OutboxTraceContext;
+import com.ecommerce.inventory.infrastructure.persistence.CancelledOrderRepository;
 import com.ecommerce.inventory.infrastructure.persistence.OutboxEventRepository;
 import com.ecommerce.inventory.infrastructure.persistence.ProcessedEventRepository;
 import com.ecommerce.inventory.infrastructure.persistence.ReservationRepository;
@@ -32,8 +35,10 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -52,6 +57,12 @@ class InventoryServiceTest {
     @Mock
     private ProcessedEventRepository processedEventRepository;
 
+    @Mock
+    private CancelledOrderRepository cancelledOrderRepository;
+
+    @Mock
+    private OutboxTraceContext traceContext;
+
     private ObjectMapper objectMapper;
 
     private InventoryServiceImpl inventoryService;
@@ -66,7 +77,10 @@ class InventoryServiceTest {
                 reservationRepository,
                 outboxEventRepository,
                 processedEventRepository,
-                objectMapper
+                cancelledOrderRepository,
+                traceContext,
+                objectMapper,
+                5
         );
 
         testStock = Stock.builder()
@@ -198,28 +212,91 @@ class InventoryServiceTest {
     void shouldReleaseReservedStock() {
         Reservation reservation = new Reservation("ord-3", 101L, 3, ReservationStatus.RESERVED, Instant.now());
         when(processedEventRepository.existsById(any(ProcessedEventId.class))).thenReturn(false);
-        when(reservationRepository.findById("ord-3")).thenReturn(Optional.of(reservation));
+        when(reservationRepository.findByOrderId("ord-3")).thenReturn(List.of(reservation));
         when(stockRepository.releaseStockAtomic(101L, 3)).thenReturn(1);
-
         inventoryService.releaseReservation("evt-3", "ord-3", "PAYMENT_FAILED");
-
         assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.RELEASED);
         verify(stockRepository).releaseStockAtomic(101L, 3);
         verify(reservationRepository).save(reservation);
+        verify(cancelledOrderRepository).save(any(CancelledOrder.class));
+        ArgumentCaptor<OutboxEvent> outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(outboxCaptor.capture());
+        assertThat(outboxCaptor.getValue().getEventType()).isEqualTo("InventoryReleased");
     }
 
     @Test
-    @DisplayName("NFR-05 Sweeper: Should release expired reservations older than TTL")
-    void shouldReleaseExpiredReservations() {
-        Reservation reservation = new Reservation("ord-expired", 101L, 2, ReservationStatus.RESERVED, Instant.now().minusSeconds(40));
-        when(reservationRepository.findByStatusAndCreatedAtBefore(eq(ReservationStatus.RESERVED), any(Instant.class)))
+    @DisplayName("NFR-05 Sweeper: Should release reservations of cancelled orders")
+    void shouldReleaseReservationsOfCancelledOrders() {
+        Reservation reservation = new Reservation("ord-cancelled", 101L, 2, ReservationStatus.RESERVED, Instant.now());
+        when(reservationRepository.findByStatusForCancelledOrders(ReservationStatus.RESERVED))
                 .thenReturn(List.of(reservation));
         when(stockRepository.releaseStockAtomic(101L, 2)).thenReturn(1);
-
-        int count = inventoryService.releaseExpiredReservations(30);
-
+        int count = inventoryService.releaseReservationsOfCancelledOrders();
         assertThat(count).isEqualTo(1);
         assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.RELEASED);
         verify(stockRepository).releaseStockAtomic(101L, 2);
+    }
+
+    @Test
+    @DisplayName("FR-07: Should reserve every product of a multi-item order, one reservation per line")
+    void shouldReserveEachLine_whenOrderHasSeveralProducts() {
+        OrderPlaced event = new OrderPlaced("evt-5", "ord-5", "cust-1", new BigDecimal("80.00"),
+                List.of(new OrderItemPayload(101L, 2, new BigDecimal("20.00")),
+                        new OrderItemPayload(102L, 1, new BigDecimal("40.00"))),
+                Instant.now());
+        when(processedEventRepository.existsById(any(ProcessedEventId.class))).thenReturn(false);
+        when(stockRepository.reserveStockAtomic(101L, 2)).thenReturn(1);
+        when(stockRepository.reserveStockAtomic(102L, 1)).thenReturn(1);
+        inventoryService.processOrderPlaced(event);
+        ArgumentCaptor<Reservation> reservations = ArgumentCaptor.forClass(Reservation.class);
+        verify(reservationRepository, times(2)).save(reservations.capture());
+        assertThat(reservations.getAllValues()).extracting(Reservation::getProductId).containsExactly(101L, 102L);
+        assertThat(reservations.getAllValues()).extracting(Reservation::getQuantity).containsExactly(2, 1);
+    }
+
+    @Test
+    @DisplayName("NFR-05: Should not reserve stock for an order that is already cancelled")
+    void shouldNotReserve_whenOrderAlreadyCancelled() {
+        OrderPlaced event = new OrderPlaced("evt-6", "ord-6", "cust-1", new BigDecimal("20.00"),
+                List.of(new OrderItemPayload(101L, 1, new BigDecimal("20.00"))), Instant.now());
+        when(processedEventRepository.existsById(any(ProcessedEventId.class))).thenReturn(false);
+        when(cancelledOrderRepository.existsById("ord-6")).thenReturn(true);
+        inventoryService.processOrderPlaced(event);
+        verify(stockRepository, never()).reserveStockAtomic(any(), anyInt());
+        verify(outboxEventRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Idempotency: a redelivered OrderPlaced reserves nothing")
+    void shouldSkip_whenEventAlreadyProcessed() {
+        OrderPlaced event = new OrderPlaced("evt-7", "ord-7", "cust-1", new BigDecimal("20.00"),
+                List.of(new OrderItemPayload(101L, 1, new BigDecimal("20.00"))), Instant.now());
+        when(processedEventRepository.existsById(any(ProcessedEventId.class))).thenReturn(true);
+        inventoryService.processOrderPlaced(event);
+        verify(stockRepository, never()).reserveStockAtomic(any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("B4: Should queue exactly one LowStock alert when stock drops below the threshold")
+    void shouldQueueOneLowStockAlert_whenStockDropsBelowThreshold() {
+        when(stockRepository.findById(101L)).thenReturn(Optional.of(testStock));
+        when(stockRepository.save(any(Stock.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        inventoryService.adjustStock(101L, 3);
+        inventoryService.adjustStock(101L, 2);
+        ArgumentCaptor<OutboxEvent> outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository, times(1)).save(outboxCaptor.capture());
+        assertThat(outboxCaptor.getValue().getEventType()).isEqualTo("LowStock");
+        assertThat(outboxCaptor.getValue().getAggregateId()).isEqualTo("101");
+    }
+
+    @Test
+    @DisplayName("B4: Should alert again after stock went back above the threshold")
+    void shouldAlertAgain_afterRestock() {
+        when(stockRepository.findById(101L)).thenReturn(Optional.of(testStock));
+        when(stockRepository.save(any(Stock.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        inventoryService.adjustStock(101L, 1);
+        inventoryService.adjustStock(101L, 40);
+        inventoryService.adjustStock(101L, 1);
+        verify(outboxEventRepository, times(2)).save(any(OutboxEvent.class));
     }
 }

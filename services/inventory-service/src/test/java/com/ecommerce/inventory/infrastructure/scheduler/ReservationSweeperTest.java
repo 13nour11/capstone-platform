@@ -7,7 +7,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -22,13 +21,22 @@ class ReservationSweeperTest {
     private ReservationSweeper reservationSweeper;
 
     @Test
-    @DisplayName("NFR-05: Should trigger releaseExpiredReservations with configured TTL")
-    void shouldTriggerSweepExpiredReservations() {
-        ReflectionTestUtils.setField(reservationSweeper, "ttlSeconds", 30);
-        when(inventoryService.releaseExpiredReservations(30)).thenReturn(3);
+    @DisplayName("NFR-05: Should release reservations of cancelled orders")
+    void shouldReleaseReservationsOfCancelledOrders() {
+        when(inventoryService.releaseReservationsOfCancelledOrders()).thenReturn(3);
 
-        reservationSweeper.sweepExpiredReservations();
+        reservationSweeper.sweepReservationsOfCancelledOrders();
 
-        verify(inventoryService).releaseExpiredReservations(30);
+        verify(inventoryService).releaseReservationsOfCancelledOrders();
+    }
+
+    @Test
+    @DisplayName("A failing sweep is logged and retried on the next run, never thrown to the scheduler")
+    void shouldNotThrow_whenSweepFails() {
+        when(inventoryService.releaseReservationsOfCancelledOrders()).thenThrow(new IllegalStateException("db down"));
+
+        reservationSweeper.sweepReservationsOfCancelledOrders();
+
+        verify(inventoryService).releaseReservationsOfCancelledOrders();
     }
 }
