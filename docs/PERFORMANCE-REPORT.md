@@ -197,3 +197,63 @@ used 3 ordering VUs. Re-run the canonical `k6/load-test.js` on hardware with ≥
    demonstrating deliberately in the G3 demo rather than hiding.
 6. **Grafana and Prometheus were stopped** for these runs to free memory, so there are no dashboard screenshots to
    accompany these numbers. The Brief expects them for G3.
+
+## 7. G4 re-run: canonical profile on adequate hardware
+
+This section closes risks 1 and 2 above. Same scripts, **unchanged**, run at G4 on a machine that meets the Brief's
+resource note, with the whole platform up (16 containers, Grafana and Prometheus included).
+
+| Item | Value |
+|---|---|
+| Machine | Linux, 4 vCPU, 15 GB RAM, Docker 29.6, everything on one host |
+| Commit | `c5116d9` (branch `capstone-integration-fixes`) — includes the §5 price cache, FR-14 tokens and JSON logs |
+| Before the run | `scripts/verify-l0.sh` → `L0 GREEN`; `scripts/e2e-check.sh` → `E2E GREEN` (39/39) |
+| Stock | products 1–4 set to 1 000 000 (`PUT /api/v1/inventory/{id}`), `PRODUCT_IDS=1,2,3,4` (risk 3) |
+| Rate limit | raised to 5000/s for the run, restored afterwards (risk 4) |
+| k6 | `grafana/k6:latest` on the compose network, `--out csv` for the stress time series |
+
+### 7.1 Smoke
+
+218 requests, **0 failed**, all checks passed (`token issued`, `list 200`, `item 200`, `order 201 PENDING`, `order readable`).
+
+### 7.2 Load — the canonical `k6/load-test.js` (60 req/s browse + 20 ordering VUs, 5 min)
+
+| Metric | Target | Result | Verdict |
+|---|---|---|---|
+| `GET /products` p95 | < 200 ms | **60.9 ms** | ✅ |
+| `POST /orders` p95 at 20 VUs | < 800 ms | **181.6 ms** | ✅ |
+| Catalogue read throughput | ≥ 50 req/s | **59.8 req/s** (the scenario's 60/s, held) | ✅ |
+| Error rate | < 1 % | **0.00 %** (0 of 28 735) | ✅ |
+| Dropped iterations | — | 1 | — |
+
+All four thresholds in the script passed. Medians: 11.8 ms (products), 53.7 ms (orders).
+
+### 7.3 Stress — `k6/stress-test.js`, ramp to 150 VUs over 11 min, per stage
+
+| Stage | Throughput | `GET /products` p95 | `POST /orders` p95 | Errors |
+|---|---|---|---|---|
+| 0 → 50 VUs | 89.7 req/s | 85 ms | 126 ms | 0 |
+| 50 → 100 VUs | 197.5 req/s | 408 ms | 465 ms | 0 |
+| 100 → 150 VUs | 236.5 req/s | 734 ms | 797 ms | 0 |
+| hold 150 VUs | 245.1 req/s | 892 ms | 983 ms | 0 |
+| ramp down | 181.6 req/s | 600 ms | 661 ms | 0 |
+| **Whole run** | **194.5 req/s** (128 427 requests) | 711 ms | 770 ms | **0.00 %** |
+
+**Reading it.** Throughput grows with load up to ~100 VUs and then flattens at ~240 req/s while latency keeps rising:
+that is the saturation point of this host, where 16 containers share 4 vCPUs. Past it the platform queues rather than
+fails — not one error in 128 427 requests, every order `201 PENDING`, every check passed. The stress script's own
+product threshold (`p95 < 500 ms`) is crossed from the 100 → 150 stage on; orders stay inside their `1500 ms`
+threshold throughout. Catalogue reads degrade first because they share the gateway and the CPU with the Saga; the
+next lever is a second gateway/product replica (Helm `replicaCount`), not code.
+
+### 7.4 Verdicts at G4
+
+| NFR | Target | Verdict |
+|---|---|---|
+| NFR-02 `GET /products` p95 | < 200 ms | **Met at the stated load** — 60.9 ms |
+| NFR-02 `POST /orders` p95 at 20 VUs | < 800 ms | **Met at the stated load** — 181.6 ms |
+| NFR-03 read throughput | ≥ 50 req/s | **Met** — 59.8 req/s held by the load profile; ~240 req/s total at saturation |
+| Error rate | < 1 % | **Met under load and under stress** — 0.00 % in both |
+
+Remaining risks 1 and 2 are closed by this section; 3 and 4 are stated above; 5 did not occur on this hardware (no
+`503` under stress); 6 is closed (Grafana and Prometheus were running).
