@@ -25,8 +25,9 @@ public class ProductServiceClient {
         this.productClient = productClient;
     }
 
-    @CircuitBreaker(name = "productService", fallbackMethod = "priceLookupFallback")
+    // Same layering as InventoryServiceClient: one fallback, on the outermost layer.
     @Retry(name = "productService", fallbackMethod = "priceLookupFallback")
+    @CircuitBreaker(name = "productService")
     public BigDecimal currentPrice(Long productId) {
         ProductPriceResponse product = productClient.getProduct(productId);
         if (product == null || product.price() == null) {

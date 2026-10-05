@@ -25,6 +25,9 @@ spring:
     enabled: true
     baseline-on-migrate: true
     locations: classpath:db/migration
+    # B (V1-V49) and C (V50+) share one folder: a new B version must still apply on a database
+    # that already ran V50 (ADD §4, Flyway plan).
+    out-of-order: true
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
@@ -72,37 +75,62 @@ product:
   # 0 disables the cache entirely (every order pays a second remote call).
   price-cache-ttl-seconds: ${PRODUCT_PRICE_CACHE_TTL_SECONDS:60}
 
+# Order -> Inventory and Order -> Product (FR-06, NFR-01). Layering and the reasons are in ADD §5.4.
+# The time limit is the Feign read timeout below: Resilience4j's TimeLimiter only applies to async
+# (CompletableFuture) methods, and these calls are synchronous by design.
 resilience4j:
   circuitbreaker:
     instances:
       inventoryService:
-        slidingWindowSize: 5
+        slidingWindowSize: 10
         permittedNumberOfCallsInHalfOpenState: 3
         slidingWindowType: COUNT_BASED
-        minimumNumberOfCalls: 3
+        minimumNumberOfCalls: 5
         waitDurationInOpenState: 5s
         failureRateThreshold: 50
+        # A sold-out product is an answer, not an outage.
+        ignoreExceptions:
+          - com.ecommerce.order.domain.exception.OutOfStockException
       productService:
-        slidingWindowSize: 5
+        slidingWindowSize: 10
         permittedNumberOfCallsInHalfOpenState: 3
         slidingWindowType: COUNT_BASED
-        minimumNumberOfCalls: 3
+        minimumNumberOfCalls: 5
         waitDurationInOpenState: 5s
         failureRateThreshold: 50
   retry:
     instances:
       inventoryService:
         maxAttempts: 2
-        waitDuration: 500ms
+        waitDuration: 300ms
+        # Retrying cannot change these: the answer was "no stock", the circuit is open, or the
+        # bulkhead is full (retrying would only add load).
+        ignoreExceptions:
+          - com.ecommerce.order.domain.exception.OutOfStockException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+          - io.github.resilience4j.bulkhead.BulkheadFullException
       productService:
         maxAttempts: 2
-        waitDuration: 500ms
-  timelimiter:
+        waitDuration: 300ms
+        ignoreExceptions:
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+  bulkhead:
     instances:
       inventoryService:
-        timeoutDuration: 2s
-      productService:
-        timeoutDuration: 2s
+        # At most 25 order requests wait on inventory at once; the rest fail fast with 503
+        # instead of tying up every Tomcat thread when inventory is slow.
+        maxConcurrentCalls: 25
+        maxWaitDuration: 50ms
+
+spring.cloud.openfeign:
+  client:
+    config:
+      inventory-service:
+        connectTimeout: 1000
+        readTimeout: 2000
+      product-service:
+        connectTimeout: 1000
+        readTimeout: 2000
 
 management:
   endpoints:

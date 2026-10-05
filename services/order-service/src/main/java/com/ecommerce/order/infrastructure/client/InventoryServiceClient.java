@@ -3,12 +3,21 @@ package com.ecommerce.order.infrastructure.client;
 import com.ecommerce.order.domain.exception.OutOfStockException;
 import com.ecommerce.order.domain.exception.ServiceUnavailableException;
 import com.ecommerce.order.infrastructure.client.dto.CheckStockResponse;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+/**
+ * The synchronous stock pre-check (FR-06). Resilience4j applies, from the outside in:
+ * Retry → CircuitBreaker → Bulkhead → the Feign call, whose connect/read timeouts are the time limit
+ * (config-repo/order-service.yml). Only the outermost layer has a fallback, so the breaker records
+ * the real failure and the retry never re-runs a fallback's exception.
+ * An out-of-stock answer is a business result, not a failure: it is neither retried nor counted by
+ * the breaker, so a run of sold-out products cannot open the circuit for everyone else.
+ */
 @Component
 public class InventoryServiceClient {
 
@@ -19,8 +28,9 @@ public class InventoryServiceClient {
         this.inventoryClient = inventoryClient;
     }
 
-    @CircuitBreaker(name = "inventoryService", fallbackMethod = "stockCheckFallback")
     @Retry(name = "inventoryService", fallbackMethod = "stockCheckFallback")
+    @CircuitBreaker(name = "inventoryService")
+    @Bulkhead(name = "inventoryService")
     public void verifyStockAvailability(Long productId, int quantity) {
         log.info("Calling inventory-service for productId: {}, quantity: {}", productId, quantity);
         CheckStockResponse response = inventoryClient.checkStock(productId, quantity);
@@ -31,11 +41,11 @@ public class InventoryServiceClient {
     }
 
     public void stockCheckFallback(Long productId, int quantity, Throwable throwable) {
-        if (throwable instanceof OutOfStockException) {
-            throw (OutOfStockException) throwable;
+        if (throwable instanceof OutOfStockException outOfStock) {
+            throw outOfStock;
         }
-        log.error("Circuit breaker triggered or inventory-service call failed for productId: {}. Reason: {}",
-                productId, throwable.getMessage());
+        log.error("Stock check unavailable for productId {} ({}): {}",
+                productId, throwable.getClass().getSimpleName(), throwable.getMessage());
         throw new ServiceUnavailableException("Stock check unavailable, please retry");
     }
 }
