@@ -67,8 +67,10 @@ order-service container must first receive the client secret. Turn them on toget
 | order-service | `KEYCLOAK_TOKEN_URI` | `http://keycloak:8180/realms/ecommerce-platform/protocol/openid-connect/token` (Compose) |
 | inventory-service | `INVENTORY_REQUIRE_SERVICE_TOKEN` | `true` |
 
-In Kubernetes the secret goes into `order-service-secrets` (`scripts/create-k8s-secrets.sh`). Evidence:
-`ServiceTokenIntegrationTest`, `InventoryServiceTokenSecurityTest`.
+In Kubernetes, order-service's chart reads only the `db-credentials` Secret today, so `ORDER_SERVICE_CLIENT_SECRET`
+must be added to a Secret it reads (`scripts/create-k8s-secrets.sh`), and `KEYCLOAK_TOKEN_URI` set to
+`http://keycloak.ecommerce:8180/realms/ecommerce-platform/protocol/openid-connect/token` in
+`deployment/helm/values/order-service.yaml`. Evidence: `ServiceTokenIntegrationTest`, `InventoryServiceTokenSecurityTest`.
 
 ---
 

@@ -143,7 +143,7 @@ These are outside Member B's files or need a running cluster. They are listed so
 | 2 | CI green on `main`, images in GHCR | C | first run after item 1; JaCoCo report is the NFR-07 proof |
 | 3 | ArgoCD tracks `env/dev`, which does not exist | A | `git push origin main:env/dev` after item 1 (deployment/argocd/README) |
 | 4 | Live cluster: pods Ready, ArgoCD Synced/Healthy | A + C | kind on a ≥ 6 GB machine; screenshot for the slides |
-| 5 | Switch FR-14 on | C (compose), A/C (Helm, Secret) | order-service: `ORDER_SERVICE_AUTH_ENABLED=true`, `ORDER_SERVICE_CLIENT_SECRET`, `KEYCLOAK_TOKEN_URI`; inventory: `INVENTORY_REQUIRE_SERVICE_TOKEN=true` (README "Run locally" §4) |
+| 5 | Switch FR-14 on | C (compose), A/C (Helm, Secret) | order-service: `ORDER_SERVICE_AUTH_ENABLED=true`, `ORDER_SERVICE_CLIENT_SECRET` (in a Secret its chart reads; today only `db-credentials`), `KEYCLOAK_TOKEN_URI`; inventory: `INVENTORY_REQUIRE_SERVICE_TOKEN=true` (README "Run locally" §4) |
 | 6 | Team Charter: names, GitHub handles, signatures | A, signed by all | `docs/TEAM-CHARTER.md` still has `<name>` placeholders |
 | 7 | ADD peer-review result | A | header line of `docs/adr/ADD-TEAM.md` still reads `<Approved / …>` |
 | 8 | Drawing 3: where data lives | A | `docs/architecture/03-data-ownership.*` (ADD §4 has the content) |
