@@ -34,6 +34,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "inventory.service.url=http://localhost:${wiremock.server.port}",
         // Same guards as config-repo/order-service.yml: the call is cut off after 2 s
         "resilience4j.timelimiter.instances.inventoryService.timeoutDuration=2s",
+        "resilience4j.retry.instances.inventoryService.maxAttempts=2",
+        "resilience4j.retry.instances.inventoryService.ignoreExceptions=com.ecommerce.order.domain.exception.OutOfStockException",
         "resilience4j.bulkhead.instances.inventoryService.maxConcurrentCalls=20"
 })
 class OrderSyncIntegrationTest {
@@ -137,5 +139,30 @@ class OrderSyncIntegrationTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("STOCK_CHECK_UNAVAILABLE"));
+    }
+
+    @Test
+    @DisplayName("Retry: a failed first stock check is retried once, so the order is still accepted")
+    void shouldAcceptOrder_whenInventoryFailsOnceThenRecovers() throws Exception {
+        stubFor(get(urlPathEqualTo("/api/v1/inventory/check")).withQueryParam("productId", equalTo("5"))
+                .inScenario("flaky").whenScenarioStateIs(com.github.tomakehurst.wiremock.stubbing.Scenario.STARTED)
+                .willReturn(aResponse().withStatus(500))
+                .willSetStateTo("recovered"));
+        stubFor(get(urlPathEqualTo("/api/v1/inventory/check")).withQueryParam("productId", equalTo("5"))
+                .inScenario("flaky").whenScenarioStateIs("recovered")
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"productId\": 5, \"requestedQuantity\": 1, \"available\": true}")));
+
+        CreateOrderRequest request = new CreateOrderRequest(List.of(
+                new OrderItemRequest(5L, 1, new BigDecimal("10.00"))
+        ));
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("X-User-Id", "customer-retry")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING"));
     }
 }

@@ -4,7 +4,6 @@ import com.ecommerce.order.domain.exception.ServiceUnavailableException;
 import com.ecommerce.order.infrastructure.client.dto.CheckStockResponse;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-import io.github.resilience4j.retry.annotation.Retry;
 import io.github.resilience4j.timelimiter.annotation.TimeLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,10 +14,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
 /**
- * The synchronous stock check (FR-06) with the four Resilience4j guards the brief asks for:
- * Retry(CircuitBreaker(TimeLimiter(Bulkhead(call)))). It lives in its own bean so the annotations always run
- * through the Spring proxy, and it answers "is it in stock?" as a value: only a broken call is a failure, so an
- * out-of-stock answer never opens the circuit or gets retried.
+ * The synchronous stock check (FR-06), guarded by CircuitBreaker(TimeLimiter(Bulkhead(call))); the Retry around it
+ * sits on {@link InventoryServiceClient}, so each attempt re-enters this proxy on the caller's thread (an async
+ * retry of a CompletableFuture would re-run the aspects on another thread, where Spring AOP cannot bind them).
+ * It answers "is it in stock?" as a value: only a broken call is a failure, so an out-of-stock answer never opens
+ * the circuit.
  */
 @Component
 public class InventoryGateway {
@@ -35,7 +35,6 @@ public class InventoryGateway {
         this.executor = executor;
     }
 
-    @Retry(name = INSTANCE)
     @CircuitBreaker(name = INSTANCE, fallbackMethod = "stockCheckUnavailable")
     @TimeLimiter(name = INSTANCE)
     @Bulkhead(name = INSTANCE)

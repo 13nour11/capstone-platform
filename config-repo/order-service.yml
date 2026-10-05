@@ -70,6 +70,9 @@ resilience4j:
       inventoryService:
         maxAttempts: 2
         waitDuration: 500ms
+        # An out-of-stock answer is a business result (409), never retried
+        ignoreExceptions:
+          - com.ecommerce.order.domain.exception.OutOfStockException
   timelimiter:
     instances:
       inventoryService:
