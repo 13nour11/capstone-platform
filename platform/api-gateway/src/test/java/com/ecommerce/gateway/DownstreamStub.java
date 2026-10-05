@@ -21,7 +21,7 @@ final class DownstreamStub {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
             server.createContext("/", exchange -> {
-                for (String header : new String[] {"X-User-Id", "X-User-Roles"}) {
+                for (String header : new String[] {"X-User-Id", "X-User-Roles", "X-Tenant-Id"}) {
                     String value = exchange.getRequestHeaders().getFirst(header);
                     if (value != null) {
                         exchange.getResponseHeaders().set(ECHO_PREFIX + header, value);

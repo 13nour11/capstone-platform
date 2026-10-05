@@ -29,6 +29,8 @@ class RoutesConfigTest {
     @CsvSource({
             "/api/v1/products,            lb://product-service",
             "/api/v1/products/7,          lb://product-service",
+            "/api/v1/products/7/reviews,  lb://review-service",
+            "/api/v1/alerts/stream,       lb://notification-service",
             "/api/v1/orders,              lb://order-service",
             "/api/v1/orders/42,           lb://order-service",
             "/api/v1/analytics/summary,   lb://order-service",
@@ -52,5 +54,15 @@ class RoutesConfigTest {
 
         assertThat(products).isNotNull();
         assertThat(products.getFilters()).extracting(FilterDefinition::getName).contains("RequestRateLimiter");
+    }
+
+    @Test
+    void shouldRateLimitPublicReviewRoute() {
+        RouteDefinition reviews = routeDefinitionLocator.getRouteDefinitions()
+                .filter(definition -> definition.getId().equals("review-service"))
+                .blockFirst();
+
+        assertThat(reviews).isNotNull();
+        assertThat(reviews.getFilters()).extracting(FilterDefinition::getName).contains("RequestRateLimiter");
     }
 }

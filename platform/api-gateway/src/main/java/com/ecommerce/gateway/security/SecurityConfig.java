@@ -38,11 +38,14 @@ public class SecurityConfig {
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers("/actuator/health/**", "/actuator/info", "/actuator/prometheus").permitAll()
                         .pathMatchers(HttpMethod.GET, "/api/v1/products/**").permitAll()
+                        // B1: customers review products; reading reviews is public (GET rule above)
+                        .pathMatchers(HttpMethod.POST, "/api/v1/products/*/reviews").hasRole("CUSTOMER")
                         .pathMatchers("/api/v1/products/**").hasRole("ADMIN")
                         .pathMatchers("/api/v1/orders/**").hasRole("CUSTOMER")
                         // Internal stock check: only order-service calls it, directly over the service network
                         .pathMatchers("/api/v1/inventory/check/**").denyAll()
-                        .pathMatchers("/api/v1/inventory/**", "/api/v1/payments/**", "/api/v1/analytics/**")
+                        .pathMatchers("/api/v1/inventory/**", "/api/v1/payments/**", "/api/v1/analytics/**",
+                                "/api/v1/alerts/**")
                         .hasRole("ADMIN")
                         .anyExchange().denyAll())
                 .oauth2ResourceServer(oauth2 -> oauth2

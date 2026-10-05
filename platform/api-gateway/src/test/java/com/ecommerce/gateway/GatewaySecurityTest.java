@@ -72,6 +72,12 @@ class GatewaySecurityTest {
             "POST,   /api/v1/payments,             CUSTOMER,  403",
             "POST,   /api/v1/payments/1/refund,    ADMIN,     200",
             "GET,    /api/v1/analytics/summary,    ADMIN,     200",
+            "GET,    /api/v1/products/1/reviews,   ANONYMOUS, 200",
+            "POST,   /api/v1/products/1/reviews,   ANONYMOUS, 401",
+            "POST,   /api/v1/products/1/reviews,   CUSTOMER,  200",
+            "POST,   /api/v1/products/1/reviews,   ADMIN,     403",
+            "GET,    /api/v1/alerts/stream,        ADMIN,     200",
+            "GET,    /api/v1/alerts/stream,        CUSTOMER,  403",
             "GET,    /api/v1/unknown,              ADMIN,     403",
     })
     void shouldApplyRoleRule_whenCallingPath(HttpMethod method, String path, String role, int expectedStatus) {
@@ -129,6 +135,49 @@ class GatewaySecurityTest {
                 .expectStatus().isOk()
                 .expectHeader().doesNotExist("Echo-X-User-Id")
                 .expectHeader().doesNotExist("Echo-X-User-Roles");
+    }
+
+    @Test
+    void shouldForwardDefaultTenant_whenAnonymousSendsNoTenant() {
+        client.get().uri("/api/v1/products").exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("Echo-X-Tenant-Id", "tenant-a");
+    }
+
+    @Test
+    void shouldForwardRequestedTenant_whenAnonymousPicksKnownTenant() {
+        client.get().uri("/api/v1/products").header("X-Tenant-Id", "tenant-b").exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("Echo-X-Tenant-Id", "tenant-b");
+    }
+
+    @Test
+    void shouldReturn400_whenTenantIsUnknown() {
+        client.get().uri("/api/v1/products").header("X-Tenant-Id", "tenant-x").exchange()
+                .expectStatus().isBadRequest()
+                .expectBody().jsonPath("$.code").isEqualTo("UNKNOWN_TENANT");
+    }
+
+    @Test
+    void shouldUseTokenTenant_whenSignedIn() {
+        client.mutateWith(jwtWithTenant("tenant-b", "ADMIN")).post().uri("/api/v1/products").exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("Echo-X-Tenant-Id", "tenant-b");
+    }
+
+    @Test
+    void shouldReturn403_whenHeaderTenantDiffersFromTokenTenant() {
+        client.mutateWith(jwtWithTenant("tenant-b", "ADMIN")).post().uri("/api/v1/products")
+                .header("X-Tenant-Id", "tenant-a").exchange()
+                .expectStatus().isForbidden()
+                .expectBody().jsonPath("$.code").isEqualTo("TENANT_MISMATCH");
+    }
+
+    private static JwtMutator jwtWithTenant(String tenant, String... roles) {
+        return mockJwt()
+                .jwt(jwt -> jwt.subject("user-1").claim("tenant_id", tenant)
+                        .claim("realm_access", Map.of("roles", List.of(roles))))
+                .authorities(new KeycloakRealmRoleConverter());
     }
 
     private static JwtMutator jwtWithRoles(String... roles) {
