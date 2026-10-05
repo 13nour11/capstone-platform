@@ -120,15 +120,8 @@ jobs:
 
       - name: Test gate (unit + integration tests, JaCoCo report)
         if: steps.module.outputs.ready == 'true'
-        run: |
-          pom="${{ steps.module.outputs.path }}/pom.xml"
-          if grep -q jacoco-maven-plugin "$pom"; then
-            mvn -B -f "$pom" verify
-          else
-            # The module does not configure JaCoCo itself, so the gate attaches it for this run.
-            mvn -B -f "$pom" org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent verify \
-              org.jacoco:jacoco-maven-plugin:0.8.12:report
-          fi
+        # Every module inherits the JaCoCo agent, report and 60% gate from the root POM.
+        run: mvn -B -f "${{ steps.module.outputs.path }}/pom.xml" verify
 
       - name: Coverage gate (service layer >= ${{ env.COVERAGE_MIN }}%)
         if: steps.module.outputs.ready == 'true'

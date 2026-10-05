@@ -10,10 +10,15 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.reactive.server.EntityExchangeResult;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.nio.charset.StandardCharsets;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 @Testcontainers
@@ -49,14 +54,26 @@ class RateLimitIT {
     void shouldReturn429ProblemJson_whenClientExceedsItsBucket() {
         WebTestClient client = WebTestClient.bindToApplicationContext(context).build();
 
-        client.get().uri("/api/v1/products").exchange().expectStatus().isOk();
+        // The bucket refills one token per second, so a fixed two-request sequence passes or fails
+        // depending on which side of a second boundary it lands. Spend the budget in a burst and
+        // assert on the first rejection instead.
+        EntityExchangeResult<byte[]> rejected = null;
+        for (int attempt = 0; attempt < 10 && rejected == null; attempt++) {
+            EntityExchangeResult<byte[]> result = client.get().uri("/api/v1/products").exchange()
+                    .expectBody().returnResult();
+            if (result.getStatus().value() == 429) {
+                rejected = result;
+            }
+        }
 
-        client.get().uri("/api/v1/products").exchange()
-                .expectStatus().isEqualTo(429)
-                .expectHeader().valueEquals(HttpHeaders.RETRY_AFTER, "1")
-                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectBody()
-                .jsonPath("$.status").isEqualTo(429)
-                .jsonPath("$.code").isEqualTo("RATE_LIMITED");
+        assertThat(rejected)
+                .withFailMessage("no request was rate limited within 10 attempts")
+                .isNotNull();
+        assertThat(rejected.getResponseHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("1");
+        assertThat(rejected.getResponseHeaders().getContentType())
+                .isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
+        assertThat(new String(rejected.getResponseBodyContent(), StandardCharsets.UTF_8))
+                .contains("\"status\":429")
+                .contains("\"code\":\"RATE_LIMITED\"");
     }
 }
