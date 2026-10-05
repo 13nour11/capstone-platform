@@ -27,6 +27,7 @@
         <module>services/order-service</module>
         <module>services/payment-service</module>
         <module>services/notification-service</module>
+        <module>services/review-service</module>
     </modules>
 
     <properties>
@@ -60,6 +61,7 @@
                         <!-- *Test = unit/slice, *IT = Testcontainers; both run in `mvn verify` so JaCoCo sees one report -->
                         <includes>
                             <include>**/*Test.java</include>
+                            <include>**/*Tests.java</include>
                             <include>**/*IT.java</include>
                         </includes>
                     </configuration>
