@@ -1,20 +1,157 @@
-# Starter CI: test gate only. Owner C completes it (L4): build -> push to GHCR with the sha tag.
+# CI for all 8 services: test gate (JUnit + Testcontainers + JaCoCo >= 60% on service layers)
+# -> Docker build -> push to GHCR tagged with the commit SHA (main only).
 name: ci
 
 on:
-  pull_request:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COVERAGE_MIN: "60"
 
 jobs:
-  verify:
+  changes:
+    name: Detect changed modules
     runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.select.outputs.modules }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared: &shared
+              - 'pom.xml'
+              - '.github/workflows/ci-template.yml'
+            config-server: [*shared, 'platform/config-server/**']
+            eureka-server: [*shared, 'platform/eureka-server/**']
+            api-gateway: [*shared, 'platform/api-gateway/**']
+            product-service: [*shared, 'services/product-service/**']
+            order-service: [*shared, 'services/order-service/**']
+            payment-service: [*shared, 'services/payment-service/**']
+            inventory-service: [*shared, 'services/inventory-service/**']
+            notification-service: [*shared, 'services/notification-service/**']
+
+      - id: select
+        env:
+          CHANGED: ${{ steps.filter.outputs.changes }}
+        run: |
+          all='["config-server","eureka-server","api-gateway","product-service","order-service","payment-service","inventory-service","notification-service"]'
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            modules="$all"
+          else
+            modules=$(echo "$CHANGED" | jq -c '[.[] | select(. != "shared")]')
+          fi
+          echo "modules=$modules" >> "$GITHUB_OUTPUT"
+          echo "Modules to build: $modules"
+
+  build:
+    name: ${{ matrix.module }}
+    needs: changes
+    if: needs.changes.outputs.modules != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.changes.outputs.modules) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve module path
+        id: module
+        run: |
+          case "${{ matrix.module }}" in
+            config-server|eureka-server|api-gateway) path="platform/${{ matrix.module }}" ;;
+            *) path="services/${{ matrix.module }}" ;;
+          esac
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+          if [ -s "$path/pom.xml" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$path/pom.xml is still empty; nothing to build yet."
+          fi
+
+      - name: Set up JDK 21
+        if: steps.module.outputs.ready == 'true'
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Unit + Testcontainers tests + JaCoCo gate
-        run: mvn -B verify
+
+      - name: Test gate (unit + integration tests, JaCoCo report)
+        if: steps.module.outputs.ready == 'true'
+        run: mvn -B -f "${{ steps.module.outputs.path }}/pom.xml" verify
+
+      - name: Coverage gate (service layer >= ${{ env.COVERAGE_MIN }}%)
+        if: steps.module.outputs.ready == 'true'
+        run: |
+          report="${{ steps.module.outputs.path }}/target/site/jacoco/jacoco.csv"
+          if [ ! -f "$report" ]; then
+            echo "::error::No JaCoCo report at $report. Add jacoco-maven-plugin (prepare-agent + report) to the build."
+            exit 1
+          fi
+          # CSV columns: GROUP,PACKAGE,CLASS,...,LINE_MISSED(8),LINE_COVERED(9). Service layer = *.application packages.
+          read -r missed covered < <(awk -F, 'NR > 1 && $2 ~ /\.application(\.|$)/ { m += $8; c += $9 } END { print m + 0, c + 0 }' "$report")
+          total=$((missed + covered))
+          if [ "$total" -eq 0 ]; then
+            echo "::notice::No application (service-layer) package in ${{ matrix.module }}; coverage gate skipped."
+            exit 0
+          fi
+          pct=$((100 * covered / total))
+          echo "Service-layer line coverage for ${{ matrix.module }}: ${pct}% ($covered/$total)"
+          if [ "$pct" -lt "$COVERAGE_MIN" ]; then
+            echo "::error::Service-layer line coverage ${pct}% is below ${COVERAGE_MIN}%"
+            exit 1
+          fi
+
+      - name: Upload test and coverage reports
+        if: always() && steps.module.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-${{ matrix.module }}
+          path: |
+            ${{ steps.module.outputs.path }}/target/surefire-reports
+            ${{ steps.module.outputs.path }}/target/site/jacoco
+          if-no-files-found: ignore
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.module.outputs.ready == 'true'
+
+      - name: Log in to GHCR
+        if: steps.module.outputs.ready == 'true' && github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image name
+        if: steps.module.outputs.ready == 'true'
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.module }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image (push on main)
+        if: steps.module.outputs.ready == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ steps.module.outputs.path }}/Dockerfile
+          push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.module }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.module }}

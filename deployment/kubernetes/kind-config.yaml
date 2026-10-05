@@ -1,0 +1,18 @@
+# Local cluster: kind create cluster --config deployment/kubernetes/kind-config.yaml
+# NodePorts are mapped to the same host ports as docker compose, so stop compose first.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: capstone
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080   # api-gateway Service (NodePort set in the Helm values)
+        hostPort: 30080
+      - containerPort: 30180   # keycloak: tokens keep the issuer http://localhost:8180
+        hostPort: 8180
+      - containerPort: 30411   # zipkin
+        hostPort: 9411
+      - containerPort: 30090   # prometheus
+        hostPort: 9090
+      - containerPort: 30300   # grafana
+        hostPort: 3000
