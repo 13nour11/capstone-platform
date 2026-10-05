@@ -17,6 +17,12 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
+  # Never contacted: tests send already-decoded tokens with jwt(); the decoder only needs to exist.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: http://localhost:0/certs
   kafka:
     bootstrap-servers: localhost:9092
     listener:
