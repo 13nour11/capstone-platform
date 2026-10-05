@@ -191,6 +191,7 @@ public class OrderServiceImpl implements OrderService {
             OrderCancelled event = new OrderCancelled(
                     UUID.randomUUID().toString(),
                     order.getId(),
+                    order.getCustomerId(),
                     reason,
                     Instant.now()
             );
@@ -215,7 +216,7 @@ public class OrderServiceImpl implements OrderService {
             order.cancel();
             orderRepository.save(order);
             saveOutboxEvent("Order", order.getId(), "OrderCancelled", new OrderCancelled(
-                    UUID.randomUUID().toString(), order.getId(), "SAGA_TIMEOUT", Instant.now()));
+                    UUID.randomUUID().toString(), order.getId(), order.getCustomerId(), "SAGA_TIMEOUT", Instant.now()));
             log.warn("Order {} cancelled after {} in PENDING; OrderCancelled queued", order.getId(), timeout);
         }
         return stuck.size();

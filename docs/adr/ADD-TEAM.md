@@ -134,7 +134,7 @@ on one partition.
 |---|---|---|---|
 | `OrderPlaced` | order to `order-events` | inventory, analytics | `eventId, orderId, customerId, totalAmount, items[{productId, quantity, unitPrice}], occurredAt` |
 | `OrderConfirmed` | order to `order-events` | notification, inventory, analytics | `eventId, orderId, customerId, occurredAt` |
-| `OrderCancelled` | order to `order-events` | notification, inventory, analytics | `eventId, orderId, reason, occurredAt` |
+| `OrderCancelled` | order to `order-events` | notification, inventory, analytics | `eventId, orderId, customerId, reason, occurredAt` (`customerId` added at G4, see below) |
 | `InventoryReserved` | inventory to `inventory-events` | payment | `eventId, orderId, customerId, totalAmount, occurredAt` |
 | `InventoryReservationFailed` | inventory to `inventory-events` | order | `eventId, orderId, reason, occurredAt` |
 | `PaymentCompleted` | payment to `payment-events` | order, inventory | `eventId, orderId, paymentId, totalAmount, occurredAt` |
@@ -163,6 +163,13 @@ gave up and why (§5.3, F14).
 
 **Compatibility rule until then:** fields are **added, never renamed or removed**. A breaking change needs a new event
 type, not a new shape for an old one.
+
+**What the end-to-end run caught (G4).** Every producer and consumer passed its own tests, yet notification-service
+rejected every order event: it had been written against an envelope (`{eventId, eventType, payload:{…}}`) instead of
+this contract (flat body, `eventType` header), and `OrderCancelled` had no `customerId` to notify. Fix within the
+rule above: `customerId` was **added** to `OrderCancelled`, and notification reads the frozen shape (still accepting the
+envelope). Guarded by `NotificationKafkaIT.shouldNotifyCustomer_whenOrderServicePublishesTheFrozenContract` and
+`scripts/e2e-check.sh` (FR-11). This is the case for the Pact test we deferred (FINAL-REPORT §6).
 
 ---
 
