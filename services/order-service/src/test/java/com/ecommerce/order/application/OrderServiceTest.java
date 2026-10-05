@@ -1,5 +1,7 @@
 package com.ecommerce.order.application;
 
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import com.ecommerce.order.api.dto.CreateOrderRequest;
 import com.ecommerce.order.api.dto.OrderItemRequest;
 import com.ecommerce.order.api.dto.OrderResponse;
@@ -74,7 +76,9 @@ class OrderServiceTest {
                 inventoryServiceClient,
                 productServiceClient,
                 objectMapper,
-                directTransactionTemplate()
+                directTransactionTemplate(),
+                Tracer.NOOP,
+                Propagator.NOOP
         );
         createOrderRequest = new CreateOrderRequest(List.of(
                 new OrderItemRequest(1L, 2)

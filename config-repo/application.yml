@@ -8,6 +8,10 @@ management:
   zipkin:
     tracing:
       endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+  observations:
+    enable:
+      # The outbox pollers run every 500 ms and would otherwise bury the request traces in Zipkin.
+      spring.scheduled: false
 
 logging:
   pattern:
@@ -29,6 +33,12 @@ spring:
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    # Lets a listener continue the traceparent the publisher put on the record, so one traceId
+    # spans HTTP and Kafka (NFR-06).
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
 
 ---
 # Separate YAML document: B and C both define "management:", one document would duplicate the key

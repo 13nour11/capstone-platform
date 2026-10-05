@@ -1,5 +1,7 @@
 package com.ecommerce.order.infrastructure.outbox;
 
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import com.ecommerce.order.domain.OutboxEvent;
 import com.ecommerce.order.domain.OutboxStatus;
 import com.ecommerce.order.infrastructure.persistence.OutboxEventRepository;
@@ -42,7 +44,7 @@ class OutboxPublisherTest {
 
     @BeforeEach
     void setUp() {
-        outboxPublisher = new OutboxPublisher(outboxEventRepository, kafkaTemplate);
+        outboxPublisher = new OutboxPublisher(outboxEventRepository, kafkaTemplate, Tracer.NOOP, Propagator.NOOP);
         ReflectionTestUtils.setField(outboxPublisher, "orderEventsTopic", "order-events");
     }
 

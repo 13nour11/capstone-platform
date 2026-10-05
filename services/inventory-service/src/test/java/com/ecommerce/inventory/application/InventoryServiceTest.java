@@ -1,5 +1,7 @@
 package com.ecommerce.inventory.application;
 
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import com.ecommerce.inventory.api.dto.CheckStockResponse;
 import com.ecommerce.inventory.api.dto.StockResponse;
 import com.ecommerce.inventory.domain.OutboxEvent;
@@ -74,7 +76,9 @@ class InventoryServiceTest {
                 cancelledOrderRepository,
                 outboxEventRepository,
                 processedEventRepository,
-                objectMapper
+                objectMapper,
+                Tracer.NOOP,
+                Propagator.NOOP
         );
 
         testStock = Stock.builder()

@@ -3,6 +3,9 @@ package com.ecommerce.inventory.infrastructure.outbox;
 import com.ecommerce.inventory.domain.OutboxEvent;
 import com.ecommerce.inventory.domain.OutboxStatus;
 import com.ecommerce.inventory.infrastructure.persistence.OutboxEventRepository;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
@@ -15,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @Component
 public class OutboxPublisher {
@@ -23,14 +28,23 @@ public class OutboxPublisher {
 
     private final OutboxEventRepository outboxEventRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
+    private final Tracer tracer;
+    private final Propagator propagator;
 
     @Value("${inventory.kafka.topics.inventory-events:inventory-events}")
     private String inventoryEventsTopic;
 
+    @Value("${inventory.outbox.send-timeout-ms:5000}")
+    private long sendTimeoutMs;
+
     public OutboxPublisher(OutboxEventRepository outboxEventRepository,
-                           KafkaTemplate<String, String> kafkaTemplate) {
+                           KafkaTemplate<String, String> kafkaTemplate,
+                           Tracer tracer,
+                           Propagator propagator) {
         this.outboxEventRepository = outboxEventRepository;
         this.kafkaTemplate = kafkaTemplate;
+        this.tracer = tracer;
+        this.propagator = propagator;
     }
 
     @Scheduled(fixedDelayString = "${inventory.outbox.poll-interval-ms:500}")
@@ -62,7 +76,15 @@ public class OutboxPublisher {
                 record.headers().add(new RecordHeader("eventType",
                         event.getEventType().getBytes(StandardCharsets.UTF_8)));
 
-                kafkaTemplate.send(record);
+                // Continues the trace of the consume that wrote the event (NFR-06), and awaits the
+                // send so an unconfirmed publish is never marked SENT.
+                Span span = continueTrace(event).name("outbox publish " + event.getEventType()).start();
+                try (Tracer.SpanInScope ignored = tracer.withSpan(span)) {
+                    kafkaTemplate.send(record).get(sendTimeoutMs, TimeUnit.MILLISECONDS);
+                } finally {
+                    span.end();
+                }
+
                 event.setStatus(OutboxStatus.SENT);
                 outboxEventRepository.save(event);
                 log.info("Published inventory outbox event {} of type {} for aggregate {}",
@@ -71,5 +93,12 @@ public class OutboxPublisher {
                 log.error("Failed to publish inventory outbox event {}: {}", event.getId(), ex.getMessage());
             }
         }
+    }
+
+    private Span.Builder continueTrace(OutboxEvent event) {
+        if (event.getTraceparent() == null || event.getTraceparent().isBlank()) {
+            return tracer.spanBuilder().setNoParent();
+        }
+        return propagator.extract(Map.of("traceparent", event.getTraceparent()), Map::get);
     }
 }

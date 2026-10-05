@@ -23,6 +23,9 @@ import com.ecommerce.order.infrastructure.persistence.OutboxEventRepository;
 import com.ecommerce.order.infrastructure.persistence.ProcessedEventRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.tracing.TraceContext;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -32,6 +35,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +53,8 @@ public class OrderServiceImpl implements OrderService {
     private final ProductServiceClient productServiceClient;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
+    private final Tracer tracer;
+    private final Propagator propagator;
 
     public OrderServiceImpl(OrderRepository orderRepository,
                             OutboxEventRepository outboxEventRepository,
@@ -56,7 +62,9 @@ public class OrderServiceImpl implements OrderService {
                             InventoryServiceClient inventoryServiceClient,
                             ProductServiceClient productServiceClient,
                             ObjectMapper objectMapper,
-                            TransactionTemplate transactionTemplate) {
+                            TransactionTemplate transactionTemplate,
+                            Tracer tracer,
+                            Propagator propagator) {
         this.orderRepository = orderRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.processedEventRepository = processedEventRepository;
@@ -64,6 +72,8 @@ public class OrderServiceImpl implements OrderService {
         this.productServiceClient = productServiceClient;
         this.objectMapper = objectMapper;
         this.transactionTemplate = transactionTemplate;
+        this.tracer = tracer;
+        this.propagator = propagator;
     }
 
     @Override
@@ -235,7 +245,6 @@ public class OrderServiceImpl implements OrderService {
     private void saveOutboxEvent(String aggregateType, String aggregateId, String eventType, Object payload) {
         try {
             String payloadJson = objectMapper.writeValueAsString(payload);
-            String traceparent = UUID.randomUUID().toString(); // Default W3C traceparent carrier
 
             OutboxEvent outboxEvent = new OutboxEvent(
                     UUID.randomUUID().toString(),
@@ -243,7 +252,7 @@ public class OrderServiceImpl implements OrderService {
                     aggregateId,
                     eventType,
                     payloadJson,
-                    traceparent,
+                    currentTraceparent(),
                     OutboxStatus.PENDING,
                     Instant.now()
             );
@@ -252,6 +261,20 @@ public class OrderServiceImpl implements OrderService {
             log.error("Failed to serialize outbox event payload", e);
             throw new RuntimeException("Outbox serialization failure", e);
         }
+    }
+
+    /**
+     * The W3C traceparent of the request that wrote the event. The publisher runs on a scheduler
+     * thread, so without this the trace would end at the outbox (NFR-06).
+     */
+    private String currentTraceparent() {
+        TraceContext context = tracer.currentTraceContext().context();
+        if (context == null) {
+            return null;
+        }
+        Map<String, String> carrier = new HashMap<>();
+        propagator.inject(context, carrier, Map::put);
+        return carrier.get("traceparent");
     }
 
     private boolean isAlreadyProcessed(String eventId, String consumer) {

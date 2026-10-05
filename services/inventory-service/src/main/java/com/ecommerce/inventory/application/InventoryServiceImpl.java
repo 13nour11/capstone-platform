@@ -22,6 +22,9 @@ import com.ecommerce.inventory.infrastructure.persistence.ReservationRepository;
 import com.ecommerce.inventory.infrastructure.persistence.StockRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.tracing.TraceContext;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -29,7 +32,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -44,19 +49,25 @@ public class InventoryServiceImpl implements InventoryService {
     private final OutboxEventRepository outboxEventRepository;
     private final ProcessedEventRepository processedEventRepository;
     private final ObjectMapper objectMapper;
+    private final Tracer tracer;
+    private final Propagator propagator;
 
     public InventoryServiceImpl(StockRepository stockRepository,
                                 ReservationRepository reservationRepository,
                                 CancelledOrderRepository cancelledOrderRepository,
                                 OutboxEventRepository outboxEventRepository,
                                 ProcessedEventRepository processedEventRepository,
-                                ObjectMapper objectMapper) {
+                                ObjectMapper objectMapper,
+                                Tracer tracer,
+                                Propagator propagator) {
         this.stockRepository = stockRepository;
         this.reservationRepository = reservationRepository;
         this.cancelledOrderRepository = cancelledOrderRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.processedEventRepository = processedEventRepository;
         this.objectMapper = objectMapper;
+        this.tracer = tracer;
+        this.propagator = propagator;
     }
 
     @Override
@@ -241,7 +252,6 @@ public class InventoryServiceImpl implements InventoryService {
     private void saveOutboxEvent(String aggregateType, String aggregateId, String eventType, Object payload) {
         try {
             String payloadJson = objectMapper.writeValueAsString(payload);
-            String traceparent = UUID.randomUUID().toString();
 
             OutboxEvent outboxEvent = new OutboxEvent(
                     UUID.randomUUID().toString(),
@@ -249,7 +259,7 @@ public class InventoryServiceImpl implements InventoryService {
                     aggregateId,
                     eventType,
                     payloadJson,
-                    traceparent,
+                    currentTraceparent(),
                     OutboxStatus.PENDING,
                     Instant.now()
             );
@@ -258,6 +268,20 @@ public class InventoryServiceImpl implements InventoryService {
             log.error("Failed to serialize outbox event payload", e);
             throw new RuntimeException("Outbox serialization failure", e);
         }
+    }
+
+    /**
+     * The W3C traceparent of the consume that wrote the event, so the trace continues through the
+     * outbox into the next hop instead of ending on the scheduler thread (NFR-06).
+     */
+    private String currentTraceparent() {
+        TraceContext context = tracer.currentTraceContext().context();
+        if (context == null) {
+            return null;
+        }
+        Map<String, String> carrier = new HashMap<>();
+        propagator.inject(context, carrier, Map::put);
+        return carrier.get("traceparent");
     }
 
     private boolean isAlreadyProcessed(String eventId) {
