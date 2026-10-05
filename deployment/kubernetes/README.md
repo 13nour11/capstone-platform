@@ -35,6 +35,7 @@ kubectl -n ecommerce wait --for=condition=Ready pod --all --timeout=600s
 | Secret `db-credentials` | `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | product, order, inventory, payment (`envFrom` in Helm) |
 | Secret `keycloak-admin` | `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD` | Keycloak |
 | Secret `keycloak-realm` | `realm-export.json` | Keycloak realm import |
+| Secret `keycloak-realm-env` | `ORDER_SERVICE_CLIENT_SECRET`, `KC_TEST_USER_PASSWORD` | Values for the `${...}` placeholders in the realm file |
 | Secret `grafana-admin` | `GF_SECURITY_ADMIN_USER`, `GF_SECURITY_ADMIN_PASSWORD` | Grafana |
 | ConfigMap `grafana-dashboards` | the JSON files in `deployment/docker/grafana/dashboards` | Grafana |
 | Secret `ghcr-pull` (only if `GHCR_USERNAME`/`GHCR_TOKEN` are set) | registry login | `imagePullSecrets` for private GHCR images |

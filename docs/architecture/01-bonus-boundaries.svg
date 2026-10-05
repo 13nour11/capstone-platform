@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="540" viewBox="0 0 680 540" font-family="Segoe UI, Arial, sans-serif">
+  <title>Bonus B2 — Order Analytics: service boundaries</title>
+  <desc>order-service write side publishes to order-events. Inside the B2 boundary owned by Member C, the analytics listener feeds the projector, which writes analytics tables in order_db, emits metrics scraped by Prometheus for Grafana, and backs the summary API reached through the API gateway.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5F5E5A"/>
+    </marker>
+  </defs>
+  <rect width="680" height="540" fill="#FFFFFF"/>
+  <text x="40" y="26" font-size="16" font-weight="600" fill="#2C2C2A">Bonus B2 — Order Analytics: service boundaries</text>
+
+  <g>
+    <rect x="60" y="50" width="180" height="56" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/>
+    <text x="150" y="74" font-size="14" font-weight="600" fill="#444441" text-anchor="middle">Order write side (B)</text>
+    <text x="150" y="92" font-size="12" fill="#5F5E5A" text-anchor="middle">orders + outbox</text>
+  </g>
+  <g>
+    <rect x="280" y="50" width="140" height="56" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/>
+    <text x="350" y="74" font-size="14" font-weight="600" fill="#444441" text-anchor="middle">Kafka topic</text>
+    <text x="350" y="92" font-size="12" fill="#5F5E5A" text-anchor="middle">order-events</text>
+  </g>
+  <line x1="240" y1="78" x2="278" y2="78" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="40" y="150" width="600" height="220" rx="12" fill="none" stroke="#888780" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="630" y="168" font-size="12" fill="#5F5E5A" text-anchor="end">B2 boundary — owned by Member C</text>
+  <path d="M350 106 L350 130 L150 130 L150 178" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="250" y="124" font-size="12" fill="#5F5E5A" text-anchor="middle">OrderPlaced · Confirmed · Cancelled</text>
+
+  <g>
+    <rect x="60" y="180" width="180" height="56" rx="4" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="150" y="204" font-size="14" font-weight="600" fill="#085041" text-anchor="middle">Analytics listener</text>
+    <text x="150" y="222" font-size="12" fill="#0F6E56" text-anchor="middle">group order-service-analytics</text>
+  </g>
+  <g>
+    <rect x="280" y="180" width="140" height="56" rx="4" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="350" y="204" font-size="14" font-weight="600" fill="#085041" text-anchor="middle">Projector</text>
+    <text x="350" y="222" font-size="12" fill="#0F6E56" text-anchor="middle">dedup by eventId</text>
+  </g>
+  <g>
+    <rect x="460" y="180" width="160" height="56" rx="4" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="540" y="204" font-size="14" font-weight="600" fill="#085041" text-anchor="middle">order_db tables</text>
+    <text x="540" y="222" font-size="12" fill="#0F6E56" text-anchor="middle">analytics_order (V50)</text>
+  </g>
+  <line x1="240" y1="208" x2="278" y2="208" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="420" y1="208" x2="458" y2="208" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="280" y="290" width="140" height="56" rx="4" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="350" y="314" font-size="14" font-weight="600" fill="#085041" text-anchor="middle">Metrics</text>
+    <text x="350" y="332" font-size="12" fill="#0F6E56" text-anchor="middle">after commit only</text>
+  </g>
+  <g>
+    <rect x="460" y="290" width="160" height="56" rx="4" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="540" y="314" font-size="14" font-weight="600" fill="#085041" text-anchor="middle">Summary API</text>
+    <text x="540" y="332" font-size="12" fill="#0F6E56" text-anchor="middle">GET /analytics/summary</text>
+  </g>
+  <line x1="350" y1="236" x2="350" y2="288" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="540" y1="236" x2="540" y2="288" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="280" y="420" width="140" height="56" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/>
+    <text x="350" y="444" font-size="14" font-weight="600" fill="#444441" text-anchor="middle">Grafana (C)</text>
+    <text x="350" y="462" font-size="12" fill="#5F5E5A" text-anchor="middle">via Prometheus</text>
+  </g>
+  <g>
+    <rect x="460" y="420" width="160" height="56" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/>
+    <text x="540" y="444" font-size="14" font-weight="600" fill="#444441" text-anchor="middle">API gateway (A)</text>
+    <text x="540" y="462" font-size="12" fill="#5F5E5A" text-anchor="middle">ADMIN role check</text>
+  </g>
+  <line x1="350" y1="346" x2="350" y2="418" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="540" y1="418" x2="540" y2="348" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <text x="40" y="510" font-size="12" fill="#5F5E5A">B2 owns: analytics_order, analytics_processed_event, its consumer group, the summary API and its metrics.</text>
+  <text x="40" y="526" font-size="12" fill="#5F5E5A">B2 does not own: the orders table or any order state change (Member B). Nothing calls B2; B2 calls no service.</text>
+</svg>

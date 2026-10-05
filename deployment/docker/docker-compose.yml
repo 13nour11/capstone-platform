@@ -102,6 +102,9 @@ services:
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD in deployment/docker/.env}
+      # Placeholders in realm-export.json, resolved at import so no secret lives in Git.
+      ORDER_SERVICE_CLIENT_SECRET: ${ORDER_SERVICE_CLIENT_SECRET:?Set ORDER_SERVICE_CLIENT_SECRET in deployment/docker/.env}
+      KC_TEST_USER_PASSWORD: ${KC_TEST_USER_PASSWORD:?Set KC_TEST_USER_PASSWORD in deployment/docker/.env}
       # One issuer for every caller, so tokens fetched on localhost validate inside the network.
       KC_HOSTNAME_URL: http://localhost:8180
       KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
@@ -167,6 +170,9 @@ services:
     build:
       context: ../..
       dockerfile: platform/config-server/Dockerfile
+    environment:
+      # Serve the repository's config-repo, mounted below (Brief §7: "reads /config-repo").
+      SPRING_CLOUD_CONFIG_SERVER_NATIVE_SEARCH_LOCATIONS: file:/config-repo
     volumes:
       - ../../config-repo:/config-repo:ro
     ports:

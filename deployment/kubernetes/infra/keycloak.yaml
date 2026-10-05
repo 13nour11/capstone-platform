@@ -38,6 +38,9 @@ spec:
           envFrom:
             - secretRef:
                 name: keycloak-admin
+            # Values for the ${...} placeholders in realm-export.json
+            - secretRef:
+                name: keycloak-realm-env
           env:
             # kind maps host 8180 to this NodePort, so tokens keep the issuer services expect.
             - name: KC_HOSTNAME_URL
