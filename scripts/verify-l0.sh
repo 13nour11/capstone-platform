@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 # L0 Definition of Done: infra healthy, config-server serving config, config-server registered in Eureka.
-# Usage (repo root, after `docker compose ... up -d`): ./scripts/verify-l0.sh
+# Usage (repo root, after `docker compose ... up -d`): ./scripts/verify-l0.sh [--with-tests]
 set -uo pipefail
 
 COMPOSE=(docker compose --env-file .env -f deployment/docker/docker-compose.yml)
 fail=0
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$1"; fail=1; }
+
+# Optional build check (member B): ./scripts/verify-l0.sh --with-tests also runs the L0/L2 module tests.
+if [ "${1:-}" = "--with-tests" ]; then
+  echo "0. Module tests"
+  for module in platform/config-server platform/eureka-server services/inventory-service services/order-service; do
+    if mvn -B -q -f "$module/pom.xml" test >/dev/null; then pass "$module tests"; else bad "$module tests"; fi
+  done
+fi
 
 echo "1. Containers healthy"
 for svc in postgres zookeeper kafka redis keycloak zipkin prometheus grafana eureka-server config-server; do
