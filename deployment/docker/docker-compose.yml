@@ -32,6 +32,7 @@ services:
       INVENTORY_DB_PASSWORD: ${INVENTORY_DB_PASSWORD:?set in .env}
       ORDER_DB_PASSWORD: ${ORDER_DB_PASSWORD:?set in .env}
       PAYMENT_DB_PASSWORD: ${PAYMENT_DB_PASSWORD:?set in .env}
+      REVIEW_DB_PASSWORD: ${REVIEW_DB_PASSWORD:?set in .env}
     # Host port is configurable: a locally installed PostgreSQL often owns 5432 already
     ports: ["${POSTGRES_PORT:-5432}:5432"]
     volumes:
@@ -225,6 +226,7 @@ services:
       <<: *platform-deps
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
     ports: ["8081:8081"]
 
   order-service:
@@ -237,6 +239,9 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/order_db
       SPRING_DATASOURCE_USERNAME: order_user
       SPRING_DATASOURCE_PASSWORD: ${ORDER_DB_PASSWORD:?set in .env}
+      # FR-14: client-credentials token for the stock check
+      ORDER_SERVICE_CLIENT_SECRET: ${ORDER_SERVICE_CLIENT_SECRET:?set in .env}
+      KEYCLOAK_TOKEN_URI: http://keycloak:8180/realms/ecommerce-platform/protocol/openid-connect/token
     depends_on:
       <<: *platform-deps
       postgres: { condition: service_healthy }
@@ -288,6 +293,23 @@ services:
       <<: *platform-deps
       kafka: { condition: service_healthy }
     ports: ["8085:8085"]
+
+  # Bonus B1
+  review-service:
+    <<: *spring-service
+    build:
+      context: ../..
+      dockerfile: services/review-service/Dockerfile
+    environment:
+      <<: *spring-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/review_db
+      SPRING_DATASOURCE_USERNAME: review_user
+      SPRING_DATASOURCE_PASSWORD: ${REVIEW_DB_PASSWORD:?set in .env}
+    depends_on:
+      <<: *platform-deps
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    ports: ["8086:8086"]
 
 volumes:
   postgres-data:

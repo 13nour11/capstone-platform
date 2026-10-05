@@ -31,19 +31,25 @@ spec:
     spec:
       containers:
         - name: keycloak
-          image: quay.io/keycloak/keycloak:24.0
-          args: ["start-dev", "--import-realm", "--http-port=8180"]
+          image: quay.io/keycloak/keycloak:26.3
+          args: ["start-dev", "--import-realm"]
           ports:
             - containerPort: 8180
+            - containerPort: 9000   # management: /health/*
+          # KC_BOOTSTRAP_ADMIN_PASSWORD plus the realm placeholders ORDER_SERVICE_CLIENT_SECRET and KC_TEST_USER_PASSWORD
           envFrom:
             - secretRef:
                 name: keycloak-admin
           env:
-            # kind maps host 8180 to this NodePort, so tokens keep the issuer services expect.
-            - name: KC_HOSTNAME_URL
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: admin
+            - name: KC_HTTP_PORT
+              value: "8180"
+            # kind maps host 8180 to this NodePort, so tokens keep the issuer services expect (same as compose).
+            - name: KC_HOSTNAME
               value: http://localhost:8180
-            - name: KC_HOSTNAME_STRICT_BACKCHANNEL
-              value: "false"
+            - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
+              value: "true"
             - name: KC_HEALTH_ENABLED
               value: "true"
             - name: JAVA_OPTS_APPEND
@@ -51,13 +57,13 @@ spec:
           readinessProbe:
             httpGet:
               path: /health/ready
-              port: 8180
+              port: 9000
             initialDelaySeconds: 30
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health/live
-              port: 8180
+              port: 9000
             initialDelaySeconds: 90
             periodSeconds: 20
           resources:

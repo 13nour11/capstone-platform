@@ -2,7 +2,7 @@
 # The release name is the service name (ArgoCD uses the application name), e.g. product-service.
 
 image:
-  repository: ""          # required, e.g. ghcr.io/13nour11/product-service
+  repository: ""          # required, e.g. ghcr.io/13nour11/capstone-platform/product-service
   tag: latest             # CI replaces it with the git sha
   pullPolicy: IfNotPresent
 
@@ -15,6 +15,7 @@ containerPort: 8080
 service:
   type: ClusterIP
   port: 8080
+  nodePort: null          # only with type NodePort (api-gateway)
 
 # Plain (non-secret) environment variables
 env: {}

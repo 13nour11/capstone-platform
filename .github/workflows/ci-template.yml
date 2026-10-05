@@ -1,5 +1,6 @@
-# CI for all 8 services: test gate (JUnit + Testcontainers + JaCoCo >= 60% on service layers)
-# -> Docker build -> push to GHCR tagged with the commit SHA (main only).
+# CI for all services: secret scan (gitleaks) + test gate (JUnit + Testcontainers + JaCoCo >= 60% on service layers)
+# -> Docker build -> push to GHCR tagged with the commit SHA (main only) -> commit the new tags to env/dev,
+# the branch ArgoCD tracks (main stays protected).
 name: ci
 
 on:
@@ -21,6 +22,17 @@ env:
   COVERAGE_MIN: "60"
 
 jobs:
+  secrets-scan:
+    name: Secret scan (NFR-04)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   changes:
     name: Detect changed modules
     runs-on: ubuntu-latest
@@ -36,7 +48,7 @@ jobs:
             shared: &shared
               - 'pom.xml'
               - '.github/workflows/ci-template.yml'
-            config-server: [*shared, 'platform/config-server/**']
+            config-server: [*shared, 'platform/config-server/**', 'config-repo/**']
             eureka-server: [*shared, 'platform/eureka-server/**']
             api-gateway: [*shared, 'platform/api-gateway/**']
             product-service: [*shared, 'services/product-service/**']
@@ -44,12 +56,13 @@ jobs:
             payment-service: [*shared, 'services/payment-service/**']
             inventory-service: [*shared, 'services/inventory-service/**']
             notification-service: [*shared, 'services/notification-service/**']
+            review-service: [*shared, 'services/review-service/**']
 
       - id: select
         env:
           CHANGED: ${{ steps.filter.outputs.changes }}
         run: |
-          all='["config-server","eureka-server","api-gateway","product-service","order-service","payment-service","inventory-service","notification-service"]'
+          all='["config-server","eureka-server","api-gateway","product-service","order-service","payment-service","inventory-service","notification-service","review-service"]'
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             modules="$all"
           else
@@ -152,6 +165,39 @@ jobs:
           context: .
           file: ${{ steps.module.outputs.path }}/Dockerfile
           push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
-          tags: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          # sha = what ArgoCD deploys; latest = last main build, used for modules unchanged in this push
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ github.sha }}
+            ${{ steps.image.outputs.name }}:latest
           cache-from: type=gha,scope=${{ matrix.module }}
           cache-to: type=gha,mode=max,scope=${{ matrix.module }}
+
+  deploy-tags:
+    name: Commit image tags to env/dev (ArgoCD)
+    needs: [changes, build, secrets-scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.modules != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Point the rebuilt services at this commit's images
+        env:
+          MODULES: ${{ needs.changes.outputs.modules }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # env/dev = main + image tags. Merge main in (keeping env/dev's tag lines), never rewrite its history.
+          if git ls-remote --exit-code --heads origin env/dev >/dev/null; then
+            git checkout -B env/dev origin/env/dev
+            git merge --no-edit -X ours origin/main
+          else
+            git checkout -B env/dev
+          fi
+          for module in $(echo "$MODULES" | jq -r '.[]'); do
+            sed -i "s|^  tag: .*|  tag: ${GITHUB_SHA}|" "deployment/helm/values/${module}.yaml"
+          done
+          git commit -am "ci: deploy ${GITHUB_SHA}" || echo "No tag changes"
+          git push origin env/dev

@@ -1,6 +1,6 @@
 image:
-  repository: ghcr.io/13nour11/eureka-server
-  tag: latest
+  repository: ghcr.io/13nour11/capstone-platform/eureka-server
+  tag: latest   # CI commits the git sha here on the env/dev branch
 
 containerPort: 8761
 service:

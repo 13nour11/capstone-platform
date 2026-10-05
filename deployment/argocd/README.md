@@ -2,11 +2,12 @@
 
 | File | What it deploys |
 |---|---|
-| `infra-app.yaml` | Application `infra`: raw manifests in `deployment/kubernetes/infra` → namespace `infra` |
+| `infra-app.yaml` | Application `infra`: raw manifests in `deployment/kubernetes/infra` → namespace `ecommerce` |
 | `services-appset.yaml` | ApplicationSet `services`: one Application per service, chart `deployment/helm/microservice` + `deployment/helm/values/<service>.yaml` → namespace `ecommerce` |
 
-Both use `automated` sync with `prune` and `selfHeal`, and track the **`env/dev`** branch. CI pushes `ghcr.io/13nour11/<service>:<sha>`
-and commits the tag bump to `env/dev`, so `main` stays protected.
+Both use `automated` sync with `prune` and `selfHeal`, and track the **`env/dev`** branch. CI pushes
+`ghcr.io/13nour11/capstone-platform/<service>:<sha>` (and `:latest`), merges `main` into `env/dev` and commits the
+tag bump there (job `deploy-tags`), so `main` stays protected and `env/dev` history is never rewritten.
 
 ## Install (once per cluster)
 

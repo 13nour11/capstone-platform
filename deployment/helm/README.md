@@ -12,11 +12,15 @@ What every release gets:
 | Hardening | `readOnlyRootFilesystem` + `/tmp` emptyDir, `allowPrivilegeEscalation: false`, drop `ALL` capabilities |
 | Least privilege | dedicated ServiceAccount per service, no RBAC bindings, `automountServiceAccountToken: false` |
 | Secrets | `envFrom` an existing Secret `<service>-secrets` (created by `scripts/create-k8s-secrets.sh`, never in Git) |
+| Environment | `enableServiceLinks: false`, so Kubernetes does not inject `<SERVICE>_PORT=tcp://...` variables that Spring could bind |
+| Gateway | `service.type: NodePort`, `nodePort: 30080` (host port 30080 in `kind-config.yaml`) |
 | Resources | requests 100m / 256Mi, limit 512Mi; the JVM uses 75 % of it (`MaxRAMPercentage` in the image) |
 | Metrics | `prometheus.io/*` pod annotations for `/actuator/prometheus` |
 
-Infrastructure is expected in namespace `infra` (`postgres.infra`, `kafka.infra:9092`, `redis.infra`, `keycloak.infra:8180`).
-`KEYCLOAK_ISSUER_URI` must equal Keycloak's `KC_HOSTNAME` in the cluster, otherwise every call is 401 (`iss` mismatch).
+Infrastructure runs in the same namespace `ecommerce`, under the same host names as docker compose (`postgres`,
+`kafka:29092`, `redis`, `keycloak:8180`), so the values use the same `SPRING_*` variables as compose.
+`SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI` must equal Keycloak's `KC_HOSTNAME`, otherwise every call is
+401 (`iss` mismatch).
 
 ## Standalone install (without ArgoCD)
 
