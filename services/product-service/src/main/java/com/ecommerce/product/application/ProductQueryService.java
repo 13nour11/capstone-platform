@@ -20,16 +20,17 @@ public class ProductQueryService {
         this.products = products;
     }
 
-    @Cacheable(cacheNames = CacheConfig.PRODUCT, key = "#id")
-    public ProductDetails getById(long id) {
-        return products.findViewById(id)
+    // Cache keys start with the tenant (B3), so a cached product is never served to another tenant
+    @Cacheable(cacheNames = CacheConfig.PRODUCT, key = "#tenant + ':' + #id")
+    public ProductDetails getById(String tenant, long id) {
+        return products.findViewById(id, tenant)
                 .map(ProductDetails::from)
                 .orElseThrow(() -> new ProductNotFoundException(id));
     }
 
     @Cacheable(cacheNames = CacheConfig.PRODUCTS,
-            key = "#pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
-    public PageResult<ProductDetails> list(Pageable pageable) {
-        return PageResult.from(products.findAllViews(pageable), ProductDetails::from);
+            key = "#tenant + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
+    public PageResult<ProductDetails> list(String tenant, Pageable pageable) {
+        return PageResult.from(products.findAllViews(tenant, pageable), ProductDetails::from);
     }
 }

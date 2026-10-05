@@ -26,19 +26,19 @@ class ProductQueryServiceTest {
     @Test
     void shouldMapProjection_whenProductExists() {
         ProductView view = view(5L, "Clean Code", "Books");
-        given(products.findViewById(5L)).willReturn(Optional.of(view));
+        given(products.findViewById(5L, "tenant-a")).willReturn(Optional.of(view));
 
-        ProductDetails details = service.getById(5L);
+        ProductDetails details = service.getById("tenant-a", 5L);
 
         assertThat(details).isEqualTo(
-                new ProductDetails(5L, "Clean Code", "desc", new BigDecimal("34.90"), 2L, "Books"));
+                new ProductDetails(5L, "Clean Code", "desc", new BigDecimal("34.90"), 2L, "Books", 4.5, 2L));
     }
 
     @Test
     void shouldThrowNotFound_whenProductIsMissing() {
-        given(products.findViewById(5L)).willReturn(Optional.empty());
+        given(products.findViewById(5L, "tenant-a")).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.getById(5L))
+        assertThatThrownBy(() -> service.getById("tenant-a", 5L))
                 .isInstanceOf(ProductNotFoundException.class)
                 .hasMessageContaining("5");
     }
@@ -47,9 +47,9 @@ class ProductQueryServiceTest {
     void shouldReturnPageMetadata_whenListing() {
         Pageable pageable = PageRequest.of(1, 2);
         ProductView hub = view(3L, "USB-C Hub", "Electronics");
-        given(products.findAllViews(pageable)).willReturn(new PageImpl<>(List.of(hub), pageable, 5));
+        given(products.findAllViews("tenant-a", pageable)).willReturn(new PageImpl<>(List.of(hub), pageable, 5));
 
-        PageResult<ProductDetails> page = service.list(pageable);
+        PageResult<ProductDetails> page = service.list("tenant-a", pageable);
 
         assertThat(page.content()).extracting(ProductDetails::name).containsExactly("USB-C Hub");
         assertThat(page.page()).isEqualTo(1);
@@ -66,6 +66,8 @@ class ProductQueryServiceTest {
         given(view.getPrice()).willReturn(new BigDecimal("34.90"));
         given(view.getCategoryId()).willReturn(2L);
         given(view.getCategoryName()).willReturn(categoryName);
+        given(view.getAverageRating()).willReturn(4.5);
+        given(view.getRatingCount()).willReturn(2L);
         return view;
     }
 }

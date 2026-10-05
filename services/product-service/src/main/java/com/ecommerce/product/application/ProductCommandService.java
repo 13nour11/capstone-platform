@@ -27,29 +27,34 @@ public class ProductCommandService {
     }
 
     @CacheEvict(cacheNames = CacheConfig.PRODUCTS, allEntries = true)
-    public ProductDetails create(ProductCommand command) {
+    public ProductDetails create(String tenant, ProductCommand command) {
         Product product = new Product(command.name(), command.description(), command.price(),
-                category(command.categoryId()));
+                category(command.categoryId()), tenant);
         return ProductDetails.from(products.save(product));
     }
 
     @Caching(evict = {
-            @CacheEvict(cacheNames = CacheConfig.PRODUCT, key = "#id"),
+            @CacheEvict(cacheNames = CacheConfig.PRODUCT, key = "#tenant + ':' + #id"),
             @CacheEvict(cacheNames = CacheConfig.PRODUCTS, allEntries = true)
     })
-    public ProductDetails update(long id, ProductCommand command) {
-        Product product = products.findById(id).orElseThrow(() -> new ProductNotFoundException(id));
+    public ProductDetails update(String tenant, long id, ProductCommand command) {
+        Product product = owned(tenant, id);
         product.changeDetails(command.name(), command.description(), command.price(), category(command.categoryId()));
         return ProductDetails.from(product);
     }
 
     @Caching(evict = {
-            @CacheEvict(cacheNames = CacheConfig.PRODUCT, key = "#id"),
+            @CacheEvict(cacheNames = CacheConfig.PRODUCT, key = "#tenant + ':' + #id"),
             @CacheEvict(cacheNames = CacheConfig.PRODUCTS, allEntries = true)
     })
-    public void delete(long id) {
-        Product product = products.findById(id).orElseThrow(() -> new ProductNotFoundException(id));
+    public void delete(String tenant, long id) {
+        Product product = owned(tenant, id);
         products.delete(product);
+    }
+
+    /** B3: a product of another tenant is reported as missing (404), never as forbidden, so ids leak nothing. */
+    private Product owned(String tenant, long id) {
+        return products.findByIdAndTenantId(id, tenant).orElseThrow(() -> new ProductNotFoundException(id));
     }
 
     private Category category(long categoryId) {

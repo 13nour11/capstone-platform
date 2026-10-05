@@ -11,6 +11,10 @@ spring:
       ddl-auto: validate
   cache:
     type: redis
+  kafka:
+    listener:
+      # Listener behaviour is unit-tested; ITs never need a broker
+      auto-startup: false
   security:
     oauth2:
       resourceserver:
