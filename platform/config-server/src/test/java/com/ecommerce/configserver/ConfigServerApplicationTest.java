@@ -3,8 +3,12 @@ package com.ecommerce.configserver;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -12,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** L0: config-server starts and serves the repository's config-repo to every service. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureObservability // tests turn metrics export off by default
 class ConfigServerApplicationTest {
 
     @Autowired
@@ -30,5 +35,18 @@ class ConfigServerApplicationTest {
     @DisplayName("Reports UP on the health endpoint used by Compose and Kubernetes probes")
     void shouldReportHealthy() {
         assertThat(http.getForObject("/actuator/health", String.class)).startsWith("{\"status\":\"UP\"");
+    }
+
+    @Test
+    @DisplayName("Exposes Prometheus metrics, so the platform-wide scrape covers it")
+    void shouldExposePrometheusMetrics() {
+        // The Accept header Prometheus sends; config-server would answer a JSON request as a config lookup.
+        HttpHeaders scrape = new HttpHeaders();
+        scrape.set(HttpHeaders.ACCEPT, "application/openmetrics-text;version=1.0.0,text/plain;version=0.0.4;q=0.5");
+
+        ResponseEntity<String> metrics =
+                http.exchange("/actuator/prometheus", HttpMethod.GET, new HttpEntity<>(scrape), String.class);
+
+        assertThat(metrics.getBody()).contains("jvm_memory_used_bytes");
     }
 }
