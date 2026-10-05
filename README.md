@@ -325,7 +325,9 @@ k6 run -e K6_PASSWORD="$KC_TEST_USER_PASSWORD" k6/smoke-test.js
 k6 run -e K6_PASSWORD="$KC_TEST_USER_PASSWORD" --summary-export k6/results/load.json k6/load-test.js
 k6 run -e K6_PASSWORD="$KC_TEST_USER_PASSWORD" --summary-export k6/results/stress.json k6/stress-test.js
 # Ordering runs log in as admin once in setup() to read prices and top up the stock of products 1-3
-# (K6_ADMIN_PASSWORD, default K6_PASSWORD). Add -e SKIP_ORDERS=true to measure the catalogue only.
+# (K6_ADMIN_PASSWORD, default K6_PASSWORD). The customer logs in once in setup() too; VUs renew that token with
+# the refresh-token grant (the realm's brute-force protection locks a user hit by many parallel password logins).
+# Add -e SKIP_ORDERS=true to measure the catalogue only.
 # Stream results to Prometheus/Grafana: K6_PROMETHEUS_RW_SERVER_URL=http://localhost:9090/api/v1/write k6 run -o experimental-prometheus-rw ...
 ```
 

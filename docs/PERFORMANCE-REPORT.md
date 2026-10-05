@@ -16,11 +16,10 @@
 
 | Item | Value |
 |---|---|
-| Machine | Windows 11 laptop (integration run, 2026-10-05) — **not** the demo machine |
-| Docker Desktop | 29.6, VM with 12 CPUs and 8 GB; the whole stack (21 containers) **and** k6 share it |
-| Deployment under test | Docker Compose (`integration/merge-abc`, commit `a102c13`) |
-| Commit | `a102c13` |
-| Gateway rate limit during the run | 1000 req/s, burst 2000 (test setting, see below) |
+| Machine | Windows 11 laptop, Intel Core i5-1335U (2 performance + 8 efficiency cores, 15 W), 16 GB — **not** the demo machine |
+| Docker Desktop | 29.6, VM with 12 vCPUs and 8 GB; the whole stack (21 containers) **and** k6 share it |
+| Deployment under test | Docker Compose, branch `integration/merge-abc` (baseline at `a102c13`, final at `0140f89`) |
+| Gateway rate limit during the runs | 1000 req/s, burst 2000 (test setting, see below) |
 | k6 version | `grafana/k6` image, latest on 2026-10-05 |
 
 The gateway rate limiter (FR-13) works per client. All anonymous k6 traffic comes from one IP, so the limit is raised
@@ -29,16 +28,15 @@ for load runs. That is a test setting, not a production change, and is stated he
 ## 3. Method
 
 1. **Smoke** (`k6/smoke-test.js`, 1 VU, 1 min): every route answers, no errors.
-2. **Baseline load** (`k6/load-test.js`, 5 min): record the numbers below **before** any change.
-3. **Find the bottleneck**: Grafana (HTTP p95 per route, Hikari pool, JVM, Kafka lag) and Zipkin (slowest span) during the run.
-4. **Fix one thing**, through a PR to the owner of that file (TEAM-GUIDE A9).
-5. **Re-run the same load test** on the same machine and compare.
-6. **Stress** (`k6/stress-test.js`, ramp to 150 VUs): record where latency and errors break.
+2. **Baseline load** (`k6/load-test.js`, 5 min): record the numbers **before** any change.
+3. **Find the bottleneck** with short controlled probes (same request mix, one variable at a time), Prometheus
+   (server-side latency per service, CPU, GC, Resilience4j) and container CPU sampled every 10 s.
+4. **Fix one thing at a time** and re-run the same 5-minute load test after each fix.
+5. **Stress** (`k6/stress-test.js`, ramp to 150 VUs): record where latency and errors break.
 
 ```bash
-k6 run -e K6_PASSWORD=... --summary-export k6/results/load-before.json k6/load-test.js
-k6 run -e K6_PASSWORD=... --summary-export k6/results/load-after.json  k6/load-test.js
-k6 run -e K6_PASSWORD=... --summary-export k6/results/stress.json      k6/stress-test.js
+k6 run -e K6_PASSWORD=... --summary-export k6/results/load.json k6/load-test.js
+k6 run -e K6_PASSWORD=... --summary-export k6/results/stress.json --out csv=k6/results/stress.csv k6/stress-test.js
 ```
 
 ## 4. Results
@@ -50,50 +48,66 @@ k6 run -e K6_PASSWORD=... --summary-export k6/results/stress.json      k6/stress
 | Requests / errors | 229 requests, 0 failed |
 | All checks passed | yes, 223/223 (all routes p95 44.8 ms) |
 
-### 4.2 Load: before and after the fix
+### 4.2 Load: before and after the fixes (same 5-minute `load-test.js`, same machine)
 
-| Metric | Target | Before | After |
-|---|---|---|---|
-| `GET /products` p95 | < 200 ms | **872 ms (fail)** | 2615 ms (rejected change) |
-| `GET /products` avg / median | — | 266 / 131 ms | 1221 ms avg |
-| `POST /orders` p95 | < 800 ms | 787 ms (pass) | 4159 ms |
-| Catalogue throughput | ≥ 50 req/s | 57.2 req/s (pass) | 38.0 req/s |
-| Error rate | < 1 % | 0.93 % (pass) | 4.42 % |
+| Metric | Target | Before | After fix 1 (k6 login) | After fix 2 (Zipkin) | **After fix 3 (retry) = final** |
+|---|---|---|---|---|---|
+| `GET /products` p95 | < 200 ms | 872 ms ✗ | 951 ms ✗ | 50 ms | **118 ms ✓** |
+| `GET /products` avg | — | 266 ms | 281 ms | 20 ms | **40 ms** |
+| `POST /orders` p95 | < 800 ms | 787 ms | 821 ms ✗ | 527 ms | **223 ms ✓** |
+| Catalogue throughput | ≥ 50 req/s | 57.2 req/s | 57.5 req/s | 59.7 req/s | **59.6 req/s ✓** |
+| Error rate | < 1 % | 0.93 % | 0.00 % | 12.72 % ✗ | **0.00 % ✓** |
+| Requests in 5 min | — | 25 138 | 25 623 | 23 547 | **28 686** |
+| k6 thresholds | all | crossed | crossed | crossed | **all passed (exit 0)** |
 
-"Before" is the baseline on the services as built (`load-before.json`, 25 138 requests). "After" is the experiment
-in §5, which made things worse and was **not** kept; the fix that meets the GET target is still open.
+Fix 2 removed the latency bottleneck; at the higher throughput it exposed a resilience bug (12.7 % of orders got
+503), which fix 3 corrected. All three are in §5.
 
-### 4.3 Stress
+### 4.3 Stress (`stress-test.js`, 11 min, ramp to 150 VUs, 20 % of iterations place an order)
 
-| VUs | `GET /products` p95 | `POST /orders` p95 | Error rate | First thing to saturate |
+| Stage | `GET /products` p95 | `GET /products/{id}` p95 | `POST /orders` p95 | Throughput | Errors |
+|---|---|---|---|---|---|
+| ramp 0 → 50 VUs | 200 ms | 184 ms | 234 ms | 80.6 req/s | 0 % |
+| ramp 50 → 100 VUs | 713 ms | 656 ms | 611 ms | 142.8 req/s | 0 % |
+| ramp 100 → 150 VUs | 1236 ms | 1149 ms | 985 ms | 149.2 req/s | 0 % |
+| hold 150 VUs | 1349 ms | 1258 ms | 1025 ms | 162.5 req/s | 0 % |
+| ramp 150 → 0 VUs | 936 ms | 847 ms | 821 ms | 128.5 req/s | 0 % |
+
+Totals: 89 720 requests, **0 failed**, no container restarted or was OOM-killed (Zipkin included).
+
+**Breaking point.** Throughput stops growing at about 150–160 req/s once load passes roughly 70–100 VUs; beyond
+that, latency grows instead (requests queue), but nothing fails. The script's stress threshold
+`GET /products p95 < 500 ms` is crossed from the 50 → 100 stage on.
+
+**First thing to saturate.** During the 150-VU hold the busiest container is **api-gateway (≈ 1.8 cores)**, then
+product-service (≈ 1.0), order-service (≈ 0.9) and inventory-service (≈ 0.8); all containers together use ≈ 6.9
+cores of the laptop's 12 logical CPUs, while k6 runs on the same machine. Memory stayed below 66 % of every
+container limit. The next lever would be a second gateway replica (Helm `replicaCount`) on a machine that has the
+cores for it.
+
+## 5. Bottlenecks found and fixed
+
+The baseline symptom was `GET /api/v1/products` p95 872 ms (target 200 ms). Controlled probes showed that the
+catalogue path itself was fast: catalogue-only traffic through the gateway had p95 **39 ms**; adding the 20
+ordering VUs pushed it to 444 ms with Keycloak at 76 % CPU — in an order-only probe Keycloak reached 642 % CPU.
+
+| # | Finding (evidence) | Root cause | Fix | Effect |
 |---|---|---|---|---|
-| 50 | — | — | — | — |
-| 100 | — | — | — | — |
-| 150 | — | — | — | — |
+| 1 | k6 sent **273** password logins for 224 orders in 30 s; Keycloak log `LOGIN_ERROR … user_temporarily_disabled` | The realm is brute-force protected; 20 VUs logging in as the same user within a second got the user temporarily disabled (401), and every k6 iteration retried the expensive password login | `k6/lib/auth.js`: `setup()` logs in once; VUs reuse that token and renew it with the refresh-token grant. Brute-force protection stays on. | 2 password logins per run; errors 0.93 % → 0 %. Latency unchanged — not the main cost. |
+| 2 | Zipkin had **restarted 15 times**; its CPU bursts (150–230 %) lined up with the gateway p95 spikes (up to 1.4 s per 30 s window) | Zipkin's in-memory storage keeps 500 000 spans by default; the image runs with a 160 MB heap and `ExitOnOutOfMemoryError`, so with 100 % sampling it filled the heap, died and restarted, and each JVM restart burst starved the gateway | `MEM_MAX_SPANS=20000` for Zipkin in compose and in the kind manifest | 0 restarts; `GET /products` p95 951 → 50 ms |
+| 3 | At the higher throughput, 70 % of orders got 503: log `IllegalStateException: Required to bind 2 arguments… (JoinPointMatch was NOT bound)` 121×, then `CircuitBreaker 'inventoryService' is OPEN` 5 799× | `@Retry` on the `CompletableFuture` stock check retried asynchronously on another thread, where Spring AOP cannot re-run the advice chain; every retry failed and opened the circuit breaker | `@Retry` moved to the synchronous caller (`InventoryServiceClient`), so `Retry(CircuitBreaker(TimeLimiter(Bulkhead)))` still holds and each attempt re-enters the proxy; out-of-stock answers are not retried. New test `shouldAcceptOrder_whenInventoryFailsOnceThenRecovers`. | errors 12.7 % → 0 %; `POST /orders` p95 223 ms |
 
-*Not run on the integration machine:* at 20 VUs its CPU was already ~92 % busy, so a 150-VU stress run there would
-measure the laptop, not the platform. Run it on the demo machine.
-
-## 5. Bottleneck found and fixed
-
-| | |
-|---|---|
-| Symptom | `GET /api/v1/products` p95 872 ms at 60 req/s + 20 ordering VUs (target 200 ms); everything else passed |
-| Evidence | Prometheus over the run: product-service answers the list in p95 92 ms (items 13 ms), the gateway's own GET p95 is 680 ms → ~590 ms is added at the gateway hop. Docker VM `system_cpu_usage` ≈ 0.92. JVM GC pause totals: review 21.5 s, order 14.5 s, gateway 9.1 s (Serial GC). |
-| Hypothesis tested | the image's startup-oriented JVM flags (`-XX:TieredStopAtLevel=1`, C1 only) cost throughput under load |
-| Experiment | same images with C2 enabled (`JAVA_TOOL_OPTIONS` override, Serial GC kept), 1-min warm-up, same 5-min load |
-| Result | **rejected**: every metric got worse (GET p95 2615 ms, POST p95 4159 ms, 38 req/s, 4.4 % errors) — C2 compile threads compete for the already saturated CPU. The Dockerfile flags stay as they are. |
-| Status | **Open for the team** — the measured constraint is the shared, CPU-saturated laptop VM. Next candidates, one at a time on the demo machine: give the gateway more CPU/heap (or a second replica), drop unused scrape duplication (`services-on-host` job also hits the containers), and check whether the per-request Redis rate-limit call dominates the gateway time (Zipkin span breakdown). |
-
-Where to look first (plan §4 L5): Hikari pool size vs Tomcat threads, a missing index on
-`orders(customer_id, created_at)`, N+1 queries (the product list already uses one projection query), cache
-serialization, Feign bulkhead limits, and the gateway rate limiter throttling the test itself.
+**Measured and rejected** (kept for the record): re-enabling the C2 JIT (`TieredStopAtLevel=1` removed) on every
+service made everything worse while the login storm was still running (GET p95 2615 ms); on the gateway alone
+it later helped (5-min probe p95 654 → 289 ms) but did not meet the target by itself, so the image flags were left
+unchanged. Trace sampling at 10 % lowered the probe p95 to 368 ms but was not needed once Zipkin was fixed, so
+sampling stays at 1.0 (NFR-06).
 
 ## 6. Conclusions and remaining risks
 
-- On the integration laptop the platform meets the order latency, throughput and error-rate targets but **not**
-  the cached catalogue p95 (872 ms vs 200 ms). The latency is added at the gateway hop while the VM's CPU is
-  saturated, not in product-service or the cache.
-- One hypothesis (JIT flags) was measured and rejected; no bottleneck fix is claimed yet.
-- Risk: numbers from a laptop that also runs k6 and 20 other containers are pessimistic; the Brief's G3 evidence
-  must come from the team's own runs on the demo machine.
+- After the three fixes every NFR-02/03 target is met on the integration laptop: `GET /products` p95 118 ms,
+  `POST /orders` p95 223 ms at 20 VUs, 59.6 catalogue req/s, 0 % errors.
+- Under stress the platform degrades gracefully (latency, not errors) and saturates at ≈ 150–160 req/s on this
+  laptop, with the gateway as the first saturated component.
+- Risk: all runs share one 15 W laptop with k6; the demo machine will give different (likely better) numbers and
+  the team should re-run the three scripts there for the G3 evidence.
