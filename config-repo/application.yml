@@ -48,6 +48,10 @@ management:
       endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
 
 logging:
+  # NFR-06: JSON log lines (Elastic Common Schema) carrying traceId and spanId from the MDC
+  structured:
+    format:
+      console: ecs
   pattern:
     level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
   level:
@@ -68,6 +72,11 @@ spring:
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    # NFR-06: traceparent travels in Kafka headers, so one traceId spans HTTP and Kafka hops
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
 
 ---
 # --- management/metrics (C) ---

@@ -3,9 +3,10 @@ server:
 
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/payment_db}
-    username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    # Containers and pods override these with SPRING_DATASOURCE_* (one login per service database, NFR-04)
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/payment_db
+    username: payment_user
+    password: ${PAYMENT_DB_PASSWORD}
   jpa:
     open-in-view: false
     hibernate:
