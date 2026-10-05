@@ -9,6 +9,7 @@ import com.ecommerce.order.domain.exception.OrderNotFoundException;
 import com.ecommerce.order.domain.exception.OutOfStockException;
 import com.ecommerce.order.domain.exception.ServiceUnavailableException;
 import com.ecommerce.order.infrastructure.client.InventoryServiceClient;
+import com.ecommerce.order.infrastructure.client.ProductServiceClient;
 import com.ecommerce.order.infrastructure.persistence.OrderRepository;
 import com.ecommerce.order.infrastructure.persistence.OutboxEventRepository;
 import com.ecommerce.order.infrastructure.persistence.ProcessedEventRepository;
@@ -19,6 +20,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -30,6 +33,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -49,6 +54,9 @@ class OrderServiceTest {
     @Mock
     private InventoryServiceClient inventoryServiceClient;
 
+    @Mock
+    private ProductServiceClient productServiceClient;
+
     private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     private OrderServiceImpl orderService;
@@ -64,11 +72,20 @@ class OrderServiceTest {
                 outboxEventRepository,
                 processedEventRepository,
                 inventoryServiceClient,
-                objectMapper
+                productServiceClient,
+                objectMapper,
+                directTransactionTemplate()
         );
         createOrderRequest = new CreateOrderRequest(List.of(
-                new OrderItemRequest(1L, 2, new BigDecimal("49.99"))
+                new OrderItemRequest(1L, 2)
         ));
+        // The catalogue prices the order; tests that fail before pricing simply never use this.
+        lenient().when(productServiceClient.currentPrice(1L)).thenReturn(new BigDecimal("49.99"));
+    }
+
+    /** Runs the callback straight through, so the test exercises the real transaction boundary call. */
+    private static TransactionTemplate directTransactionTemplate() {
+        return new TransactionTemplate(mock(PlatformTransactionManager.class));
     }
 
     @Test

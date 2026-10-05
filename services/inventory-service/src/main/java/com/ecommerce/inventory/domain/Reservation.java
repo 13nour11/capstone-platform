@@ -5,18 +5,21 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.IdClass;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
 
 @Entity
 @Table(name = "reservation")
+@IdClass(ReservationId.class)
 public class Reservation {
 
     @Id
     @Column(name = "order_id", length = 64)
     private String orderId;
 
+    @Id
     @Column(name = "product_id", nullable = false)
     private Long productId;
 

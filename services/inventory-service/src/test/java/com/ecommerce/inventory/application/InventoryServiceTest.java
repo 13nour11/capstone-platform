@@ -10,6 +10,7 @@ import com.ecommerce.inventory.domain.Stock;
 import com.ecommerce.inventory.domain.event.OrderItemPayload;
 import com.ecommerce.inventory.domain.event.OrderPlaced;
 import com.ecommerce.inventory.domain.exception.ProductNotFoundException;
+import com.ecommerce.inventory.infrastructure.persistence.CancelledOrderRepository;
 import com.ecommerce.inventory.infrastructure.persistence.OutboxEventRepository;
 import com.ecommerce.inventory.infrastructure.persistence.ProcessedEventRepository;
 import com.ecommerce.inventory.infrastructure.persistence.ReservationRepository;
@@ -31,9 +32,12 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,6 +49,9 @@ class InventoryServiceTest {
 
     @Mock
     private ReservationRepository reservationRepository;
+
+    @Mock
+    private CancelledOrderRepository cancelledOrderRepository;
 
     @Mock
     private OutboxEventRepository outboxEventRepository;
@@ -64,6 +71,7 @@ class InventoryServiceTest {
         inventoryService = new InventoryServiceImpl(
                 stockRepository,
                 reservationRepository,
+                cancelledOrderRepository,
                 outboxEventRepository,
                 processedEventRepository,
                 objectMapper
@@ -198,7 +206,7 @@ class InventoryServiceTest {
     void shouldReleaseReservedStock() {
         Reservation reservation = new Reservation("ord-3", 101L, 3, ReservationStatus.RESERVED, Instant.now());
         when(processedEventRepository.existsById(any(ProcessedEventId.class))).thenReturn(false);
-        when(reservationRepository.findById("ord-3")).thenReturn(Optional.of(reservation));
+        when(reservationRepository.findByOrderId("ord-3")).thenReturn(List.of(reservation));
         when(stockRepository.releaseStockAtomic(101L, 3)).thenReturn(1);
 
         inventoryService.releaseReservation("evt-3", "ord-3", "PAYMENT_FAILED");
@@ -209,10 +217,10 @@ class InventoryServiceTest {
     }
 
     @Test
-    @DisplayName("NFR-05 Sweeper: Should release expired reservations older than TTL")
-    void shouldReleaseExpiredReservations() {
+    @DisplayName("NFR-05 Sweeper: Should release orphaned reservations of cancelled orders")
+    void shouldReleaseOrphanedReservationsOfCancelledOrders() {
         Reservation reservation = new Reservation("ord-expired", 101L, 2, ReservationStatus.RESERVED, Instant.now().minusSeconds(40));
-        when(reservationRepository.findByStatusAndCreatedAtBefore(eq(ReservationStatus.RESERVED), any(Instant.class)))
+        when(reservationRepository.findSweepableForCancelledOrders(eq(ReservationStatus.RESERVED), any(Instant.class)))
                 .thenReturn(List.of(reservation));
         when(stockRepository.releaseStockAtomic(101L, 2)).thenReturn(1);
 
@@ -221,5 +229,40 @@ class InventoryServiceTest {
         assertThat(count).isEqualTo(1);
         assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.RELEASED);
         verify(stockRepository).releaseStockAtomic(101L, 2);
+    }
+
+    @Test
+    @DisplayName("Oversell guard: sweeper leaves stock of a still-pending order alone")
+    void shouldNotReleaseReservationOfOrderStillAwaitingPayment() {
+        // The query only returns reservations of cancelled orders, so an order awaiting a slow
+        // payment yields nothing to sweep and keeps its stock.
+        when(reservationRepository.findSweepableForCancelledOrders(eq(ReservationStatus.RESERVED), any(Instant.class)))
+                .thenReturn(List.of());
+
+        int count = inventoryService.releaseExpiredReservations(30);
+
+        assertThat(count).isZero();
+        verify(stockRepository, never()).releaseStockAtomic(any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("Multi-item order: reserves and releases each product by its own quantity")
+    void shouldReserveAndReleaseEachProductSeparately() {
+        OrderPlaced event = new OrderPlaced(
+                "evt-multi", "ord-multi", "cust-1", new BigDecimal("60.00"),
+                List.of(new OrderItemPayload(101L, 2, new BigDecimal("10.00")),
+                        new OrderItemPayload(202L, 4, new BigDecimal("10.00"))),
+                Instant.now());
+        when(processedEventRepository.existsById(any(ProcessedEventId.class))).thenReturn(false);
+        when(stockRepository.reserveStockAtomic(101L, 2)).thenReturn(1);
+        when(stockRepository.reserveStockAtomic(202L, 4)).thenReturn(1);
+
+        inventoryService.processOrderPlaced(event);
+
+        ArgumentCaptor<Reservation> captor = ArgumentCaptor.forClass(Reservation.class);
+        verify(reservationRepository, times(2)).save(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(Reservation::getProductId, Reservation::getQuantity)
+                .containsExactly(tuple(101L, 2), tuple(202L, 4));
     }
 }

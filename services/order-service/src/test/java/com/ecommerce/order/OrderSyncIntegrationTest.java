@@ -11,16 +11,20 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cloud.contract.wiremock.AutoConfigureWireMock;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -31,7 +35,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @TestPropertySource(properties = {
         "spring.flyway.enabled=false",
         "spring.jpa.hibernate.ddl-auto=create-drop",
-        "inventory.service.url=http://localhost:${wiremock.server.port}"
+        "inventory.service.url=http://localhost:${wiremock.server.port}",
+        "product.service.url=http://localhost:${wiremock.server.port}"
 })
 class OrderSyncIntegrationTest {
 
@@ -44,6 +49,23 @@ class OrderSyncIntegrationTest {
     @org.springframework.boot.test.mock.mockito.MockBean
     private org.springframework.kafka.core.KafkaTemplate<String, String> kafkaTemplate;
 
+    // No Keycloak in this slice: requests carry an already-decoded token via jwt().
+    @MockitoBean
+    private JwtDecoder jwtDecoder;
+
+    private static JwtRequestPostProcessor customer() {
+        return jwt().jwt(token -> token.subject("customer-integration")
+                        .claim("realm_access", Map.of("roles", List.of("CUSTOMER"))))
+                .authorities(new com.ecommerce.order.infrastructure.security.KeycloakRealmRoleConverter());
+    }
+
+    private static void stubPrice(long productId, String price) {
+        stubFor(get(urlPathEqualTo("/api/v1/products/" + productId))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"id\": " + productId + ", \"price\": " + price + "}")));
+    }
+
     @Test
     @DisplayName("End-to-end: should place order when inventory returns available: true")
     void shouldPlaceOrder_whenInventoryStockAvailable() throws Exception {
@@ -53,13 +75,14 @@ class OrderSyncIntegrationTest {
                 .willReturn(aResponse()
                         .withHeader("Content-Type", "application/json")
                         .withBody("{\"productId\": 1, \"requestedQuantity\": 2, \"available\": true}")));
+        stubPrice(1L, "49.99");
 
         CreateOrderRequest request = new CreateOrderRequest(List.of(
-                new OrderItemRequest(1L, 2, new BigDecimal("49.99"))
+                new OrderItemRequest(1L, 2)
         ));
 
         mockMvc.perform(post("/api/v1/orders")
-                        .header("X-User-Id", "customer-integration")
+                        .with(customer())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
@@ -79,11 +102,11 @@ class OrderSyncIntegrationTest {
                         .withBody("{\"productId\": 2, \"requestedQuantity\": 10, \"available\": false}")));
 
         CreateOrderRequest request = new CreateOrderRequest(List.of(
-                new OrderItemRequest(2L, 10, new BigDecimal("19.99"))
+                new OrderItemRequest(2L, 10)
         ));
 
         mockMvc.perform(post("/api/v1/orders")
-                        .header("X-User-Id", "customer-integration")
+                        .with(customer())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict())
@@ -103,11 +126,11 @@ class OrderSyncIntegrationTest {
                         .withBody("{\"error\": \"Internal Server Error\"}")));
 
         CreateOrderRequest request = new CreateOrderRequest(List.of(
-                new OrderItemRequest(3L, 1, new BigDecimal("10.00"))
+                new OrderItemRequest(3L, 1)
         ));
 
         mockMvc.perform(post("/api/v1/orders")
-                        .header("X-User-Id", "customer-integration")
+                        .with(customer())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isServiceUnavailable())

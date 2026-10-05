@@ -3,6 +3,12 @@ server:
   port: 8082
 
 spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/ecommerce-platform}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/certs}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/order_db}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
@@ -34,6 +40,11 @@ spring:
 order:
   outbox:
     poll-interval-ms: 500
+  # Generous: payment may be down for minutes (NFR-01). Cancelling earlier would return stock
+  # for orders that are still going to be paid.
+  pending-timeout-minutes: 10
+  pending-sweeper:
+    fixed-delay-ms: 60000
   kafka:
     topics:
       order-events: order-events
@@ -54,10 +65,21 @@ inventory:
   service:
     url: ${INVENTORY_SERVICE_URL:http://localhost:8084}
 
+product:
+  service:
+    url: ${PRODUCT_SERVICE_URL:http://localhost:8081}
+
 resilience4j:
   circuitbreaker:
     instances:
       inventoryService:
+        slidingWindowSize: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        slidingWindowType: COUNT_BASED
+        minimumNumberOfCalls: 3
+        waitDurationInOpenState: 5s
+        failureRateThreshold: 50
+      productService:
         slidingWindowSize: 5
         permittedNumberOfCallsInHalfOpenState: 3
         slidingWindowType: COUNT_BASED
@@ -69,9 +91,14 @@ resilience4j:
       inventoryService:
         maxAttempts: 2
         waitDuration: 500ms
+      productService:
+        maxAttempts: 2
+        waitDuration: 500ms
   timelimiter:
     instances:
       inventoryService:
+        timeoutDuration: 2s
+      productService:
         timeoutDuration: 2s
 
 management:

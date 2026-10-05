@@ -2,6 +2,7 @@ package com.ecommerce.inventory.application;
 
 import com.ecommerce.inventory.api.dto.CheckStockResponse;
 import com.ecommerce.inventory.api.dto.StockResponse;
+import com.ecommerce.inventory.domain.CancelledOrder;
 import com.ecommerce.inventory.domain.OutboxEvent;
 import com.ecommerce.inventory.domain.OutboxStatus;
 import com.ecommerce.inventory.domain.ProcessedEvent;
@@ -14,6 +15,7 @@ import com.ecommerce.inventory.domain.event.InventoryReserved;
 import com.ecommerce.inventory.domain.event.OrderItemPayload;
 import com.ecommerce.inventory.domain.event.OrderPlaced;
 import com.ecommerce.inventory.domain.exception.ProductNotFoundException;
+import com.ecommerce.inventory.infrastructure.persistence.CancelledOrderRepository;
 import com.ecommerce.inventory.infrastructure.persistence.OutboxEventRepository;
 import com.ecommerce.inventory.infrastructure.persistence.ProcessedEventRepository;
 import com.ecommerce.inventory.infrastructure.persistence.ReservationRepository;
@@ -38,17 +40,20 @@ public class InventoryServiceImpl implements InventoryService {
 
     private final StockRepository stockRepository;
     private final ReservationRepository reservationRepository;
+    private final CancelledOrderRepository cancelledOrderRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final ProcessedEventRepository processedEventRepository;
     private final ObjectMapper objectMapper;
 
     public InventoryServiceImpl(StockRepository stockRepository,
                                 ReservationRepository reservationRepository,
+                                CancelledOrderRepository cancelledOrderRepository,
                                 OutboxEventRepository outboxEventRepository,
                                 ProcessedEventRepository processedEventRepository,
                                 ObjectMapper objectMapper) {
         this.stockRepository = stockRepository;
         this.reservationRepository = reservationRepository;
+        this.cancelledOrderRepository = cancelledOrderRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.processedEventRepository = processedEventRepository;
         this.objectMapper = objectMapper;
@@ -119,17 +124,16 @@ public class InventoryServiceImpl implements InventoryService {
         }
 
         if (allReserved) {
-            // Create reservation record
-            OrderItemPayload firstItem = items.get(0);
-            int totalQuantity = items.stream().mapToInt(OrderItemPayload::quantity).sum();
-            Reservation reservation = new Reservation(
-                    event.orderId(),
-                    firstItem.productId(),
-                    totalQuantity,
-                    ReservationStatus.RESERVED,
-                    Instant.now()
-            );
-            reservationRepository.save(reservation);
+            // One reservation row per product, so a release returns exactly what was taken.
+            for (OrderItemPayload item : items) {
+                reservationRepository.save(new Reservation(
+                        event.orderId(),
+                        item.productId(),
+                        item.quantity(),
+                        ReservationStatus.RESERVED,
+                        Instant.now()
+                ));
+            }
 
             // Queue InventoryReserved event to outbox
             InventoryReserved outboxPayload = new InventoryReserved(
@@ -169,14 +173,19 @@ public class InventoryServiceImpl implements InventoryService {
             return;
         }
 
-        reservationRepository.findById(orderId).ifPresent(reservation -> {
+        // Recorded even when no reservation exists yet: OrderPlaced can still be in flight behind the
+        // cancel event, and the sweeper uses this to release stock that arrives afterwards.
+        cancelledOrderRepository.save(new CancelledOrder(orderId, Instant.now()));
+
+        for (Reservation reservation : reservationRepository.findByOrderId(orderId)) {
             if (reservation.getStatus() == ReservationStatus.RESERVED) {
                 stockRepository.releaseStockAtomic(reservation.getProductId(), reservation.getQuantity());
                 reservation.setStatus(ReservationStatus.RELEASED);
                 reservationRepository.save(reservation);
-                log.info("Released stock reservation for order: {} (reason: {})", orderId, reason);
+                log.info("Released stock reservation for order: {} product: {} (reason: {})",
+                        orderId, reservation.getProductId(), reason);
             }
-        });
+        }
 
         markProcessed(eventId);
     }
@@ -189,14 +198,23 @@ public class InventoryServiceImpl implements InventoryService {
             return;
         }
 
-        reservationRepository.findById(orderId).ifPresent(reservation -> {
+        List<Reservation> reservations = reservationRepository.findByOrderId(orderId);
+        boolean consumedAny = false;
+        for (Reservation reservation : reservations) {
             if (reservation.getStatus() == ReservationStatus.RESERVED) {
                 stockRepository.confirmStockAtomic(reservation.getProductId(), reservation.getQuantity());
                 reservation.setStatus(ReservationStatus.CONSUMED);
                 reservationRepository.save(reservation);
-                log.info("Consumed stock reservation for order: {}", orderId);
+                consumedAny = true;
+                log.info("Consumed stock reservation for order: {} product: {}", orderId, reservation.getProductId());
             }
-        });
+        }
+
+        if (!consumedAny) {
+            // The order was confirmed but no stock was held for it: the goods are oversold.
+            log.error("ALERT oversell: order {} confirmed with no RESERVED stock (reservations found: {})",
+                    orderId, reservations.size());
+        }
 
         markProcessed(eventId);
     }
@@ -205,16 +223,17 @@ public class InventoryServiceImpl implements InventoryService {
     @Transactional
     public int releaseExpiredReservations(int ttlSeconds) {
         Instant cutoff = Instant.now().minusSeconds(ttlSeconds);
-        List<Reservation> expired = reservationRepository.findByStatusAndCreatedAtBefore(ReservationStatus.RESERVED, cutoff);
+        List<Reservation> orphaned =
+                reservationRepository.findSweepableForCancelledOrders(ReservationStatus.RESERVED, cutoff);
 
         int count = 0;
-        for (Reservation reservation : expired) {
+        for (Reservation reservation : orphaned) {
             stockRepository.releaseStockAtomic(reservation.getProductId(), reservation.getQuantity());
             reservation.setStatus(ReservationStatus.RELEASED);
             reservationRepository.save(reservation);
             count++;
-            log.info("NFR-05 Sweeper: released expired reservation for order: {} (age > {}s)",
-                    reservation.getOrderId(), ttlSeconds);
+            log.info("NFR-05 Sweeper: released orphaned reservation for cancelled order: {} product: {} (age > {}s)",
+                    reservation.getOrderId(), reservation.getProductId(), ttlSeconds);
         }
         return count;
     }

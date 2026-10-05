@@ -17,6 +17,7 @@ import com.ecommerce.order.domain.event.OrderItemPayload;
 import com.ecommerce.order.domain.event.OrderPlaced;
 import com.ecommerce.order.domain.exception.OrderNotFoundException;
 import com.ecommerce.order.infrastructure.client.InventoryServiceClient;
+import com.ecommerce.order.infrastructure.client.ProductServiceClient;
 import com.ecommerce.order.infrastructure.persistence.OrderRepository;
 import com.ecommerce.order.infrastructure.persistence.OutboxEventRepository;
 import com.ecommerce.order.infrastructure.persistence.ProcessedEventRepository;
@@ -26,10 +27,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -41,35 +46,46 @@ public class OrderServiceImpl implements OrderService {
     private final OutboxEventRepository outboxEventRepository;
     private final ProcessedEventRepository processedEventRepository;
     private final InventoryServiceClient inventoryServiceClient;
+    private final ProductServiceClient productServiceClient;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
 
     public OrderServiceImpl(OrderRepository orderRepository,
                             OutboxEventRepository outboxEventRepository,
                             ProcessedEventRepository processedEventRepository,
                             InventoryServiceClient inventoryServiceClient,
-                            ObjectMapper objectMapper) {
+                            ProductServiceClient productServiceClient,
+                            ObjectMapper objectMapper,
+                            TransactionTemplate transactionTemplate) {
         this.orderRepository = orderRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.processedEventRepository = processedEventRepository;
         this.inventoryServiceClient = inventoryServiceClient;
+        this.productServiceClient = productServiceClient;
         this.objectMapper = objectMapper;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @Override
     public OrderResponse createOrder(String customerId, CreateOrderRequest request) {
         log.info("Processing order placement for customerId: {} with {} items", customerId, request.items().size());
 
-        // 1. Synchronous stock pre-check (OpenFeign + Resilience4j) BEFORE opening DB transaction
+        // 1. Stock pre-check and pricing (OpenFeign + Resilience4j) BEFORE opening the DB
+        // transaction: a remote call inside it would hold a Hikari connection for its whole duration.
+        Map<Long, BigDecimal> prices = new LinkedHashMap<>();
         for (OrderItemRequest item : request.items()) {
             inventoryServiceClient.verifyStockAvailability(item.productId(), item.quantity());
+            prices.computeIfAbsent(item.productId(), productServiceClient::currentPrice);
         }
 
-        // 2. Persist order and outbox event in ONE database transaction
-        return persistOrderAndOutbox(customerId, request);
+        // 2. Persist order and outbox event in ONE database transaction. Called through the
+        // TransactionTemplate because a plain self-call would bypass the proxy and leave each
+        // save in its own transaction, which is exactly what the outbox exists to prevent.
+        return transactionTemplate.execute(status -> persistOrderAndOutbox(customerId, request, prices));
     }
 
-    @Transactional
-    public OrderResponse persistOrderAndOutbox(String customerId, CreateOrderRequest request) {
+    OrderResponse persistOrderAndOutbox(String customerId, CreateOrderRequest request,
+                                        Map<Long, BigDecimal> prices) {
         String orderId = UUID.randomUUID().toString();
 
         BigDecimal totalAmount = BigDecimal.ZERO;
@@ -81,7 +97,8 @@ public class OrderServiceImpl implements OrderService {
                 .build();
 
         for (OrderItemRequest itemReq : request.items()) {
-            OrderItem item = new OrderItem(itemReq.productId(), itemReq.quantity(), itemReq.unitPrice());
+            OrderItem item = new OrderItem(itemReq.productId(), itemReq.quantity(),
+                    prices.get(itemReq.productId()));
             order.addItem(item);
             totalAmount = totalAmount.add(item.getSubtotal());
         }
@@ -163,11 +180,44 @@ public class OrderServiceImpl implements OrderService {
         markProcessed(eventId, "order-service");
     }
 
+    /**
+     * Cancels orders whose saga never finished (NFR-01 bounded): payment may be down for minutes,
+     * so the timeout is generous and the OrderCancelled event is what frees the reserved stock.
+     */
+    @Override
+    @Transactional
+    public int cancelOrdersPendingLongerThan(Duration timeout) {
+        List<Order> stuck = orderRepository.findByStatusAndCreatedAtBefore(
+                OrderStatus.PENDING, Instant.now().minus(timeout));
+
+        for (Order order : stuck) {
+            order.cancel();
+            orderRepository.save(order);
+            saveOutboxEvent("Order", order.getId(), "OrderCancelled", new OrderCancelled(
+                    UUID.randomUUID().toString(), order.getId(), "SAGA_TIMEOUT", Instant.now()));
+            log.warn("Order {} cancelled after {} in PENDING; OrderCancelled queued", order.getId(), timeout);
+        }
+        return stuck.size();
+    }
+
     @Override
     @Transactional(readOnly = true)
     public OrderResponse getOrderById(String orderId) {
         log.info("Fetching order by id: {}", orderId);
         return orderRepository.findById(orderId)
+                .map(this::mapToResponse)
+                .orElseThrow(() -> new OrderNotFoundException(orderId));
+    }
+
+    /**
+     * Someone else's order is reported as not found, so the endpoint cannot be used to discover
+     * which order ids exist.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public OrderResponse getOrderForCustomer(String orderId, String customerId, boolean admin) {
+        return orderRepository.findById(orderId)
+                .filter(order -> admin || order.getCustomerId().equals(customerId))
                 .map(this::mapToResponse)
                 .orElseThrow(() -> new OrderNotFoundException(orderId));
     }
