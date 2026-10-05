@@ -194,6 +194,25 @@ class OrderServiceTest {
         verify(outboxEventRepository).save(outbox.capture());
         assertThat(outbox.getValue().getEventType()).isEqualTo("OrderCancelled");
         assertThat(outbox.getValue().getPayload()).contains("SAGA_TIMEOUT");
+        // notification-service needs the customer to address the cancellation; without it the event goes to the DLT
+        assertThat(outbox.getValue().getPayload()).contains("\"customerId\":\"cust-1\"");
+    }
+
+    @Test
+    @DisplayName("FR-11: PaymentFailed cancels the order and OrderCancelled carries the customer for notification")
+    void shouldQueueOrderCancelledWithCustomer_whenPaymentFails() {
+        Order pending = order("cust-1");
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(pending));
+
+        orderService.cancelOrder("evt-fail", "ord-123", "CARD_DECLINED");
+
+        assertThat(pending.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        ArgumentCaptor<OutboxEvent> outbox = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(outbox.capture());
+        assertThat(outbox.getValue().getEventType()).isEqualTo("OrderCancelled");
+        assertThat(outbox.getValue().getPayload())
+                .contains("\"customerId\":\"cust-1\"")
+                .contains("CARD_DECLINED");
     }
 
     @Test
