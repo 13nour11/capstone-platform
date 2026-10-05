@@ -10,16 +10,27 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import com.ecommerce.inventory.infrastructure.security.KeycloakRealmRoleConverter;
+import com.ecommerce.inventory.infrastructure.security.SecurityConfig;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.List;
+import java.util.Map;
+
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(InventoryController.class)
+@Import(SecurityConfig.class)
 class InventoryControllerTest {
 
     @Autowired
@@ -30,6 +41,15 @@ class InventoryControllerTest {
 
     @MockBean
     private InventoryService inventoryService;
+
+    @MockitoBean
+    private JwtDecoder jwtDecoder;
+
+    static JwtRequestPostProcessor withRole(String role) {
+        return jwt().jwt(token -> token.subject("user-" + role)
+                        .claim("realm_access", Map.of("roles", List.of(role))))
+                .authorities(new KeycloakRealmRoleConverter());
+    }
 
     @Test
     @DisplayName("GET /api/v1/inventory/check should return 200 with availability status")
@@ -64,6 +84,7 @@ class InventoryControllerTest {
                 .thenReturn(new StockResponse(1L, 50, 10));
 
         mockMvc.perform(get("/api/v1/inventory/1")
+                        .with(withRole("ADMIN"))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.productId").value(1))
@@ -79,6 +100,7 @@ class InventoryControllerTest {
                 .thenReturn(new StockResponse(1L, 75, 10));
 
         mockMvc.perform(put("/api/v1/inventory/1")
+                        .with(withRole("ADMIN"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request))
                         .accept(MediaType.APPLICATION_JSON))
@@ -94,9 +116,26 @@ class InventoryControllerTest {
                 .thenThrow(new com.ecommerce.inventory.domain.exception.ProductNotFoundException(999L));
 
         mockMvc.perform(get("/api/v1/inventory/999")
+                        .with(withRole("ADMIN"))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"))
                 .andExpect(jsonPath("$.title").value("Product Not Found"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/inventory/{id} without a token should return 401")
+    void shouldReturn401_whenAdminEndpointCalledWithoutToken() throws Exception {
+        mockMvc.perform(get("/api/v1/inventory/1")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/inventory/{id} as CUSTOMER should return 403")
+    void shouldReturn403_whenCustomerAdjustsStock() throws Exception {
+        mockMvc.perform(put("/api/v1/inventory/1")
+                        .with(withRole("CUSTOMER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new StockAdjustmentRequest(5))))
+                .andExpect(status().isForbidden());
     }
 }

@@ -9,6 +9,17 @@ spring:
         jwt:
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/ecommerce-platform}
           jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/certs}
+      # FR-14: order-service's own identity for the stock check (realm role SERVICE).
+      client:
+        registration:
+          order-service:
+            provider: keycloak
+            client-id: order-service
+            client-secret: ${ORDER_SERVICE_CLIENT_SECRET:}
+            authorization-grant-type: client_credentials
+        provider:
+          keycloak:
+            token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/token}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/order_db}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
@@ -41,6 +52,11 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 order:
+  service-auth:
+    # FR-14: send the client-credentials token to inventory. Needs ORDER_SERVICE_CLIENT_SECRET and
+    # KEYCLOAK_TOKEN_URI in this service's environment; switch on together with inventory's
+    # INVENTORY_REQUIRE_SERVICE_TOKEN (README "Run locally").
+    enabled: ${ORDER_SERVICE_AUTH_ENABLED:false}
   outbox:
     poll-interval-ms: 500
   # Generous: payment may be down for minutes (NFR-01). Cancelling earlier would return stock

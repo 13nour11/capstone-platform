@@ -2,6 +2,12 @@ server:
   port: 8084
 
 spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/ecommerce-platform}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/certs}
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/inventory_db}
     username: ${SPRING_DATASOURCE_USERNAME:postgres}
@@ -31,6 +37,10 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 inventory:
+  security:
+    # FR-14: /check requires the SERVICE role (order-service client credentials). Switch on together
+    # with ORDER_SERVICE_AUTH_ENABLED in order-service; see README "Run locally".
+    require-service-token: ${INVENTORY_REQUIRE_SERVICE_TOKEN:false}
   outbox:
     poll-interval-ms: 500
   reservation:
