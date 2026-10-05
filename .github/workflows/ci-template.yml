@@ -120,14 +120,22 @@ jobs:
 
       - name: Test gate (unit + integration tests, JaCoCo report)
         if: steps.module.outputs.ready == 'true'
-        run: mvn -B -f "${{ steps.module.outputs.path }}/pom.xml" verify
+        run: |
+          pom="${{ steps.module.outputs.path }}/pom.xml"
+          if grep -q jacoco-maven-plugin "$pom"; then
+            mvn -B -f "$pom" verify
+          else
+            # The module does not configure JaCoCo itself, so the gate attaches it for this run.
+            mvn -B -f "$pom" org.jacoco:jacoco-maven-plugin:0.8.12:prepare-agent verify \
+              org.jacoco:jacoco-maven-plugin:0.8.12:report
+          fi
 
       - name: Coverage gate (service layer >= ${{ env.COVERAGE_MIN }}%)
         if: steps.module.outputs.ready == 'true'
         run: |
           report="${{ steps.module.outputs.path }}/target/site/jacoco/jacoco.csv"
           if [ ! -f "$report" ]; then
-            echo "::error::No JaCoCo report at $report. Add jacoco-maven-plugin (prepare-agent + report) to the build."
+            echo "::error::No JaCoCo report at $report. If the pom sets surefire <argLine>, start it with @{argLine} so the JaCoCo agent is kept."
             exit 1
           fi
           # CSV columns: GROUP,PACKAGE,CLASS,...,LINE_MISSED(8),LINE_COVERED(9). Service layer = *.application packages.
