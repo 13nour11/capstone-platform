@@ -44,10 +44,16 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
           {{- end }}
-          {{- if .Values.secretName }}
+          {{- if or .Values.secretName .Values.extraSecretNames }}
           envFrom:
+            {{- with .Values.secretName }}
             - secretRef:
-                name: {{ .Values.secretName }}
+                name: {{ . }}
+            {{- end }}
+            {{- range .Values.extraSecretNames }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
           {{- end }}
           startupProbe:
             httpGet:

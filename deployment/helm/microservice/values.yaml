@@ -22,6 +22,8 @@ env: {}
 # Existing Kubernetes Secret whose keys become environment variables (passwords, client secrets).
 # Created outside Git by scripts/create-k8s-secrets.sh (NFR-04). Empty = no secret.
 secretName: ""
+# More Secrets mounted with envFrom, e.g. order-service also needs its Keycloak client secret (FR-14).
+extraSecretNames: []
 
 resources:
   requests:

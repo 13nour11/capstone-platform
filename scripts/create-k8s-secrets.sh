@@ -50,6 +50,10 @@ apply secret generic db-credentials \
 apply secret generic product-db-credentials \
   --from-literal=PRODUCT_DB_PASSWORD="${PRODUCT_DB_PASSWORD:-$POSTGRES_PASSWORD}"
 
+# order-service's own Keycloak client secret, for the client-credentials stock check (FR-14).
+apply secret generic order-service-client \
+  --from-literal=ORDER_SERVICE_CLIENT_SECRET="$ORDER_SERVICE_CLIENT_SECRET"
+
 apply secret generic keycloak-admin \
   --from-literal=KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN:-admin}" \
   --from-literal=KEYCLOAK_ADMIN_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD"

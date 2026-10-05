@@ -16,6 +16,8 @@ env:
   # Must equal the iss claim, i.e. Keycloak KC_HOSTNAME in the cluster (infra manifest)
   KEYCLOAK_ISSUER_URI: http://localhost:8180/realms/ecommerce-platform
   KEYCLOAK_JWK_SET_URI: http://keycloak.ecommerce:8180/realms/ecommerce-platform/protocol/openid-connect/certs
+  # FR-14: /check only for the SERVICE role (order-service's client-credentials token)
+  INVENTORY_REQUIRE_SERVICE_TOKEN: "true"
 
 # Supplies SPRING_DATASOURCE_USERNAME / SPRING_DATASOURCE_PASSWORD (scripts/create-k8s-secrets.sh)
 secretName: db-credentials
