@@ -1,0 +1,19 @@
+image:
+  repository: ghcr.io/13nour11/product-service
+  tag: latest
+
+containerPort: 8081
+service:
+  port: 8081
+
+env:
+  CONFIG_SERVER_URL: http://config-server:8888
+  EUREKA_URL: http://eureka-server:8761/eureka/
+  POSTGRES_HOST: postgres.infra
+  REDIS_HOST: redis.infra
+  # Must equal the iss claim, i.e. Keycloak KC_HOSTNAME in the cluster (infra manifest)
+  KEYCLOAK_ISSUER_URI: http://localhost:8180/realms/ecommerce-platform
+  KEYCLOAK_JWK_SET_URI: http://keycloak.infra:8180/realms/ecommerce-platform/protocol/openid-connect/certs
+
+# Keys: see scripts/create-k8s-secrets.sh
+secretName: product-service-secrets

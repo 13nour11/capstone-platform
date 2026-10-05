@@ -1,0 +1,37 @@
+# Defaults for every service. deployment/helm/values/<service>.yaml overrides them.
+# The release name is the service name (ArgoCD uses the application name), e.g. product-service.
+
+image:
+  repository: ""          # required, e.g. ghcr.io/13nour11/product-service
+  tag: latest             # CI replaces it with the git sha
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []      # e.g. [{name: ghcr-pull}] for private GHCR packages
+
+replicaCount: 1
+
+containerPort: 8080
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Plain (non-secret) environment variables
+env: {}
+
+# Existing Kubernetes Secret whose keys become environment variables (passwords, client secrets).
+# Created outside Git by scripts/create-k8s-secrets.sh (NFR-04). Empty = no secret.
+secretName: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+
+probes:
+  livenessPath: /actuator/health/liveness
+  readinessPath: /actuator/health/readiness
+  # Slow JVM start on a laptop cluster: allow up to 3 minutes before liveness takes over
+  startupFailureThreshold: 36

@@ -1,0 +1,23 @@
+# Build output
+target/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets: never commit (NFR-04). Copy .env.example to .env locally.
+.env
+*.env.local
+
+# Logs and k6 output
+*.log
+k6/results/

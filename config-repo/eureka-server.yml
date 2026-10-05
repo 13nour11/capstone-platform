@@ -1,0 +1,2 @@
+# eureka-server starts before config-server and does not import it; its settings live in
+# platform/eureka-server/src/main/resources/application.yml. Kept for the Starter layout.

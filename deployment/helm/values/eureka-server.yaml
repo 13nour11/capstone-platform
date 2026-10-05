@@ -1,0 +1,7 @@
+image:
+  repository: ghcr.io/13nour11/eureka-server
+  tag: latest
+
+containerPort: 8761
+service:
+  port: 8761

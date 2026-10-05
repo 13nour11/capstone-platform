@@ -1,0 +1,8 @@
+# Each block is its own YAML document (---): write only inside your own block (docs/TEAM-GUIDE.md §1.2).
+
+# --- order (B) ---
+server:
+  port: 8082
+
+---
+# --- analytics (C) ---

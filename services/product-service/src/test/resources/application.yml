@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: product-service
+  cloud:
+    config:
+      enabled: false
+  jpa:
+    open-in-view: false
+    hibernate:
+      # The entity mapping must match the Flyway schema exactly
+      ddl-auto: validate
+  cache:
+    type: redis
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Never contacted: tests authenticate with jwt() post-processors
+          jwk-set-uri: http://localhost:1/certs
+
+eureka:
+  client:
+    enabled: false

@@ -1,0 +1,79 @@
+{
+  "realm": "ecommerce-platform",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "roles": {
+    "realm": [
+      { "name": "ADMIN", "description": "Manages the catalogue, stock and payments" },
+      { "name": "CUSTOMER", "description": "Places and reads own orders" },
+      { "name": "SERVICE", "description": "Service-to-service calls (client credentials, FR-14)" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "api-gateway",
+      "name": "API Gateway (public client for Postman, curl and k6)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:8080/*"],
+      "webOrigins": ["+"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    },
+    {
+      "clientId": "order-service",
+      "name": "Order service (confidential, client credentials)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${ORDER_SERVICE_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@shop.local",
+      "emailVerified": true,
+      "firstName": "Platform",
+      "lastName": "Admin",
+      "credentials": [{ "type": "password", "value": "${KC_TEST_USER_PASSWORD}", "temporary": false }],
+      "realmRoles": ["ADMIN"]
+    },
+    {
+      "username": "customer1",
+      "enabled": true,
+      "email": "customer1@shop.local",
+      "emailVerified": true,
+      "firstName": "Customer",
+      "lastName": "One",
+      "credentials": [{ "type": "password", "value": "${KC_TEST_USER_PASSWORD}", "temporary": false }],
+      "realmRoles": ["CUSTOMER"]
+    },
+    {
+      "username": "customer2",
+      "enabled": true,
+      "email": "customer2@shop.local",
+      "emailVerified": true,
+      "firstName": "Customer",
+      "lastName": "Two",
+      "credentials": [{ "type": "password", "value": "${KC_TEST_USER_PASSWORD}", "temporary": false }],
+      "realmRoles": ["CUSTOMER"]
+    },
+    {
+      "username": "service-account-order-service",
+      "enabled": true,
+      "serviceAccountClientId": "order-service",
+      "realmRoles": ["SERVICE"]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: notification-service
+  cloud:
+    config:
+      enabled: false
+  kafka:
+    consumer:
+      group-id: notification-service
+      auto-offset-reset: earliest
+
+eureka:
+  client:
+    enabled: false
+
+notification:
+  retry:
+    attempts: 4
+    # Same shape as production (exponential), shorter so the DLT test stays fast
+    delay-ms: 100
+    multiplier: 2.0
