@@ -5,44 +5,70 @@ An enterprise e-commerce platform built with Spring Boot 3, Spring Cloud, Kafka,
 ---
 
 ## Run locally
+*(Maintained by Member B)*
 
 ### Prerequisites
-- Java 21+
-- Apache Maven 3.9+
-- Docker & Docker Compose (optional for full platform infra)
-- PostgreSQL 16 & Apache Kafka 3.7 (or embedded test profile)
 
-### Running Member B Services Locally
+| Tool | Version | Note |
+|---|---|---|
+| Java | 21 | |
+| Maven | 3.9+ | |
+| Docker + Compose v2 | Docker Desktop with **≥ 6 GB RAM** | Keycloak needs ~60 s on first start |
 
-#### 1. Start Config & Eureka Servers (Platform)
+### 1. Start the whole platform (NFR-08)
+
 ```bash
-# Config Server
-mvn spring-boot:run -f platform/config-server/pom.xml
-
-# Eureka Server
-mvn spring-boot:run -f platform/eureka-server/pom.xml
+cp deployment/docker/.env.example deployment/docker/.env     # then replace every change-me value
+docker compose -f deployment/docker/docker-compose.yml up -d --build
+scripts/verify-l0.sh                                           # L0 check, see below
 ```
 
-#### 2. Start Inventory Service
+`scripts/verify-l0.sh` is the L0 Definition of Done (Brief §6). It waits for, and checks:
+
+1. every infrastructure container is healthy: postgres, zookeeper, kafka, redis, keycloak, zipkin, prometheus, grafana;
+2. config-server is `UP` and serves `application.yml` plus the file of every service from `config-repo/`;
+3. eureka-server is `UP` and every platform service container that is running is registered as `UP`.
+
+It ends with `L0 GREEN` (exit 0) or `L0 RED` with the failing check and the command to investigate it.
+Options: `WAIT_SECONDS=300` (slow machine), `SKIP_INFRA=1` (services started from the IDE),
+`EXPECTED_APPS="order-service inventory-service"` (require specific registrations).
+
+### 2. Run one service from the IDE or Maven
+
+Start the infrastructure, config-server and eureka-server with Compose, stop the container of the service you work
+on, then run it locally; it reads its configuration from config-server on `localhost:8888`:
+
 ```bash
-# Runs on port 8084
-mvn spring-boot:run -f services/inventory-service/pom.xml
+docker compose -f deployment/docker/docker-compose.yml stop order-service
+export SPRING_DATASOURCE_PASSWORD=<POSTGRES_PASSWORD from deployment/docker/.env>
+mvn -pl services/order-service spring-boot:run        # :8082 (inventory-service: :8084)
 ```
 
-#### 3. Start Order Service
+### 3. Tests
+
 ```bash
-# Runs on port 8082
-mvn spring-boot:run -f services/order-service/pom.xml
+mvn verify                                            # all modules, JaCoCo gate on the service layer (NFR-07)
+mvn -pl services/order-service -am verify             # one module
 ```
 
-#### 4. Running Verification Test Suites
-```bash
-# Test Inventory Service (30 tests)
-mvn test -f services/inventory-service/pom.xml
+`*IT` / `*RepositoryTest` classes that use **Testcontainers** need a running Docker. The Kafka ITs
+(`OrderSagaDeadLetterIT`, `InventorySagaDeadLetterIT`) use an embedded broker and run anywhere.
 
-# Test Order Service (24 tests)
-mvn test -f services/order-service/pom.xml
-```
+### 4. Service-to-service authentication (FR-14)
+
+order-service calls inventory's `/check` with its own client-credentials token (Keycloak client `order-service`,
+realm role `SERVICE`), and inventory then rejects the call without it. Both sides ship **switched off**, because the
+order-service container must first receive the client secret. Turn them on together:
+
+| Service | Variable | Value |
+|---|---|---|
+| order-service | `ORDER_SERVICE_AUTH_ENABLED` | `true` |
+| order-service | `ORDER_SERVICE_CLIENT_SECRET` | the same value Keycloak imports (`.env`) |
+| order-service | `KEYCLOAK_TOKEN_URI` | `http://keycloak:8180/realms/ecommerce-platform/protocol/openid-connect/token` (Compose) |
+| inventory-service | `INVENTORY_REQUIRE_SERVICE_TOKEN` | `true` |
+
+In Kubernetes the secret goes into `order-service-secrets` (`scripts/create-k8s-secrets.sh`). Evidence:
+`ServiceTokenIntegrationTest`, `InventoryServiceTokenSecurityTest`.
 
 ---
 
@@ -113,65 +139,74 @@ Tests: `GatewaySecurityTest` (role matrix, 401/403 JSON, header spoofing), `Rate
 ---
 
 ## Orders & Saga
+*(Maintained by Member B)*
 
-### Choreography-based Saga Architecture
+The sequence (happy path and the payment-declined compensation) is drawn in
+[`docs/architecture/02-order-sequence.svg`](docs/architecture/02-order-sequence.svg); the reasoning is in ADD §5
+and the failure modes in ADD §6.
 
-The platform uses an asynchronous choreography-based Saga to coordinate transactions across distributed services (`order-service`, `inventory-service`, and `payment-service`) without distributed two-phase commit (2PC) locks.
+### How an order flows (choreography, ADD Decision 5-1)
 
+| Step | Who | What happens | Transaction |
+|---|---|---|---|
+| 1 | order | `POST /api/v1/orders`: stock pre-check (Feign + Retry → CircuitBreaker → Bulkhead, 2 s timeout) and price lookup | none: remote calls stay **outside** the DB transaction |
+| 2 | order | `orders` row `PENDING` + `outbox_event` `OrderPlaced`; answers `201 {orderId, PENDING}` | one |
+| 3 | order | outbox poller publishes to `order-events` (key = `orderId`, header `traceparent`) | — |
+| 4 | inventory | reserves stock with an atomic conditional `UPDATE`, writes `InventoryReserved` (or `InventoryReservationFailed`) to its outbox | one |
+| 5 | payment | charges once per order, writes `PaymentCompleted` / `PaymentFailed` to its outbox | one |
+| 6 | order | `PENDING → CONFIRMED` (`OrderConfirmed`) or `PENDING → CANCELLED` (`OrderCancelled`) | one |
+| 7 | inventory | consumes the reservation, or **releases** it on `PaymentFailed` / `OrderCancelled` (compensation) | one |
+| 8 | notification | sends the confirmation or the cancellation notice | — |
+
+### Guarantees and where they come from
+
+| Guarantee | Mechanism | Evidence |
+|---|---|---|
+| An order and its event are never split | transactional outbox, poller with `FOR UPDATE SKIP LOCKED` | `OutboxPublisherTest`, `OrderServiceTest` |
+| A redelivered event changes nothing (NFR-10) | `processed_event(event_id, consumer)` in the same transaction; state checks (`CONFIRMED` twice is a no-op) | `InventoryServiceTest`, `OrderServiceTest` |
+| A failing consumer never silently drops a Saga step (NFR-10) | 3 retries 1 s apart, then `<topic>.DLT` + `ALERT dead-letter` log | `OrderSagaDeadLetterIT`, `InventorySagaDeadLetterIT` |
+| Sold-out products never block other customers | `OutOfStockException` is not retried and not counted by the circuit breaker | `OrderSyncIntegrationTest` |
+| No orphaned stock (NFR-05) | inventory sweeper (every 10 s) releases `RESERVED` rows of orders recorded as cancelled, after a 30 s grace period | `ReservationSweeperTest`, `StockRepositoryTest` |
+| No order stuck forever | order sweeper cancels `PENDING` orders older than 10 min and publishes `OrderCancelled` | `PendingOrderSweeperTest` |
+| One trace per order (NFR-06) | `traceparent` stored on every outbox row and sent as a Kafka header | Zipkin, see Observability |
+
+The inventory sweeper releases by **saga outcome, never by age** (ADD Decision 6-1): releasing every reservation older
+than 30 s would return stock for orders whose payment is merely slow, and sell the same unit twice.
+
+### Demo script (uses `$CUSTOMER` / `$ADMIN` from "Security & curl checks")
+
+```bash
+GW=http://localhost:8080
+# Happy path: 201 PENDING, then CONFIRMED within a second or two
+ID=$(curl -s -X POST $GW/api/v1/orders -H "Authorization: Bearer $CUSTOMER" -H 'Content-Type: application/json' \
+       -d '{"items":[{"productId":1,"quantity":1}]}' | sed -E 's/.*"orderId":"([^"]+)".*/\1/')
+curl -s $GW/api/v1/orders/$ID -H "Authorization: Bearer $CUSTOMER"          # "status":"CONFIRMED"
+
+# No stock: 409 OUT_OF_STOCK, no order row, payment never touched
+curl -s -X POST $GW/api/v1/orders -H "Authorization: Bearer $CUSTOMER" -H 'Content-Type: application/json' \
+     -d '{"items":[{"productId":1,"quantity":100000}]}'
+
+# Compensation: every payment fails -> CANCELLED and the stock comes back
+#   set PAYMENT_FAILURE_RATE=1.0 in deployment/docker/.env, then:
+docker compose -f deployment/docker/docker-compose.yml up -d payment-service
+curl -s $GW/api/v1/inventory/1 -H "Authorization: Bearer $ADMIN"            # note "available"
+#   place an order as above -> "status":"CANCELLED"; "available" is back to the same number
+
+# NFR-01 chaos: payment down -> order stays PENDING, nothing is lost
+docker compose -f deployment/docker/docker-compose.yml stop payment-service
+#   place an order -> PENDING (and stays PENDING)
+docker compose -f deployment/docker/docker-compose.yml start payment-service
+#   once payment has rejoined its consumer group (seconds), the same order is CONFIRMED
 ```
-[Client] 
-   │ POST /api/v1/orders
-   ▼
-[order-service] ──(HTTP sync check)──► [inventory-service]
-   │ (Persists Order PENDING + OutboxEvent)
-   │
-   ▼ (Async Outbox Poller)
-[Kafka: order-events] (OrderPlaced)
-   │
-   ├──► [inventory-service]
-   │       ├── Reserves stock atomically & saves Reservation
-   │       └── Persists OutboxEvent (InventoryReserved or InventoryReservationFailed)
-   │              │
-   │              ▼ (Async Outbox Poller)
-   │        [Kafka: inventory-events] (InventoryReserved)
-   │              │
-   │              └──► [payment-service]
-   │                      ├── Processes payment
-   │                      └── Emits PaymentCompleted or PaymentFailed
-   │                             │
-   ▼                             ▼
-[order-service] ◄── [Kafka: payment-events]
-   ├── On PaymentCompleted: Order -> CONFIRMED, emits OrderConfirmed
-   └── On PaymentFailed: Order -> CANCELLED, emits OrderCancelled
-          │
-          └──► [inventory-service] receives PaymentFailed / OrderCancelled:
-                  Releases reserved stock back to available pool
+
+**NFR-05 query** (must print `0`):
+
+```bash
+docker compose -f deployment/docker/docker-compose.yml exec postgres psql -U postgres -d inventory_db -c \
+  "SELECT count(*) FROM reservation r WHERE r.status = 'RESERVED'
+     AND r.order_id IN (SELECT order_id FROM cancelled_order)
+     AND r.created_at < now() - interval '30 seconds';"
 ```
-
-### Architectural Invariants & Patterns
-
-1. **Transactional Outbox Pattern**:
-   - Zero `kafkaTemplate.send()` calls inside database `@Transactional` blocks.
-   - Business entities and `outbox_event` records are committed in the **same local database transaction**.
-   - An asynchronous `@Scheduled` poller queries pending outbox events using `SELECT ... FOR UPDATE SKIP LOCKED` and publishes records to Kafka with `key = orderId`.
-   - On successful publish, the event status is marked as `SENT`.
-
-2. **Distributed Tracing Continuity (NFR-06)**:
-   - The active W3C `traceparent` header is captured and persisted in the `outbox_event.traceparent` column.
-   - When the outbox publisher dispatches the Kafka `ProducerRecord`, the `traceparent` is injected as a Kafka record header, ensuring zero trace context loss between asynchronous threads and services.
-
-3. **Idempotent Consumer Processing (NFR-10)**:
-   - Each consumer service maintains a `processed_event(event_id, consumer)` table.
-   - Every incoming event checks for duplicate processing within the consumer transaction. Duplicate events are silently discarded, guaranteeing exactly-once semantics at the business layer.
-
-4. **NFR-05 Reservation Timeout Sweeper**:
-   - `inventory-service` executes a scheduled sweeper (`ReservationSweeper`) every 10 seconds.
-   - Any reservation in `RESERVED` status older than 30 seconds (`inventory.reservation.ttl-seconds: 30`) is automatically released and refunded to available stock, preventing stock leakage from abandoned or unconfirmed orders.
-
-5. **Failure Compensation Paths**:
-   - **Out of Stock**: Synchronous check returns `409 Conflict` (`OUT_OF_STOCK`); order is never saved.
-   - **Payment Failure**: `payment-service` emits `PaymentFailed`. `order-service` cancels order (`CANCELLED`); `inventory-service` compensates by releasing the reserved stock.
-   - **Inventory Reservation Failure**: If concurrent orders deplete stock before async reservation, `inventory-service` emits `InventoryReservationFailed`. `order-service` marks the order `CANCELLED`.
 
 ---
 
@@ -257,7 +292,40 @@ ArgoCD deploys `infra` (raw manifests) and one Application per service (Applicat
 ## Observability
 *(Maintained by Member B)*
 
-Distributed tracing is configured across all services via Micrometer Tracing with Brave and Zipkin exporter (`http://localhost:9411/api/v2/spans`). All Kafka events propagate W3C `traceparent` headers to correlate spans across HTTP requests and Kafka message processing.
+| What | Where | Notes |
+|---|---|---|
+| Traces (NFR-06) | Zipkin <http://localhost:9411> | Micrometer Tracing (Brave), W3C `traceparent`, 100 % sampling |
+| Logs | `docker compose logs <service>` | **JSON**, one object per line, with `traceId`, `spanId` and `service` |
+| Metrics | `/actuator/prometheus` on every service → Prometheus <http://localhost:9090> | |
+| Dashboards | Grafana <http://localhost:3000>: *Platform overview*, *Order Analytics (B2)* | |
+| Dead letters | `<topic>.DLT` topics | headers name the consumer group and the exception |
+
+### One trace across HTTP and Kafka
+
+The request span starts at the gateway. order-service stores the current `traceparent` on the outbox row, and the
+poller sends it as a Kafka header, so inventory, payment, notification and the order's own Saga consumers continue the
+**same** trace (`spring.kafka.template/listener.observation-enabled`). The scheduled pollers themselves are not traced
+(`management.observations.enable.spring.scheduled: false`), so they do not bury the request traces.
+
+```bash
+# 1. place an order (Orders & Saga), then take its traceId from any service's log line
+docker compose -f deployment/docker/docker-compose.yml logs order-service | grep 'Order placed' | tail -1
+#   {"message":"Order placed and OutboxEvent persisted: orderId=…","traceId":"6ac4…","service":"order-service",…}
+# 2. open http://localhost:9411/zipkin/traces/<traceId>:
+#    api-gateway -> order-service -> inventory /check, product /{id}
+#    -> order-events -> inventory-service -> inventory-events -> payment-service -> payment-events
+#    -> order-service (CONFIRMED) -> order-events -> notification-service
+# 3. the same traceId finds every log line of that order in every service
+docker compose -f deployment/docker/docker-compose.yml logs | grep '"traceId":"<traceId>"'
+```
+
+### Reading a dead-letter topic
+
+```bash
+docker compose -f deployment/docker/docker-compose.yml exec kafka kafka-console-consumer \
+  --bootstrap-server kafka:29092 --topic payment-events.DLT --from-beginning --property print.headers=true
+# kafka_dlt-original-consumer-group, kafka_dlt-exception-message, … tell who gave up and why
+```
 
 ---
 

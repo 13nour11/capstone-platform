@@ -102,9 +102,9 @@ Everything public is under `/api/v1`. Roles are in §7.1; this table is the cont
 | `GET /api/v1/orders/{id}` | — | `200` order | `404 ORDER_NOT_FOUND` (also when it belongs to someone else) |
 | `GET /api/v1/orders` | — | `200` the caller's own orders | — |
 | `GET /api/v1/analytics/summary` | `hours` (1 to 168, default 24) | `200` totals, per-status counts, revenue, hourly rows | `400` outside the range |
-| `GET /api/v1/inventory/check` | `productId`, `quantity` | `200 {productId, requestedQuantity, available}` | internal only, never routed |
-| `GET /api/v1/inventory/{productId}` | — | `200 {productId, available, reserved}` | `404 PRODUCT_NOT_FOUND` |
-| `PUT /api/v1/inventory/{productId}` | `{availableQuantity}` | `200` new stock | `400` |
+| `GET /api/v1/inventory/check` | `productId`, `quantity` | `200 {productId, requestedQuantity, available}` | internal only, never routed; `401`/`403` without the `SERVICE` token once FR-14 is switched on |
+| `GET /api/v1/inventory/{productId}` | — | `200 {productId, available, reserved}` | `404 PRODUCT_NOT_FOUND`, `401`, `403` (not ADMIN) |
+| `PUT /api/v1/inventory/{productId}` | `{availableQuantity}` | `200` new stock | `400`, `401`, `403` (not ADMIN) |
 | `POST /api/v1/payments` | header `Idempotency-Key`, `{orderId, amount}` | `201` payment; a replay returns the stored response with `Idempotent-Replayed: true` | `400` missing key, `422` same key with a different body |
 | `POST /api/v1/payments/{id}/refund` | — | `200` refunded payment | `404`, `409` |
 
@@ -145,6 +145,11 @@ on one partition.
 
 **Serialisation.** JSON over `StringSerializer` for key and value. No Java type headers, so no consumer is tied to a
 producer's class names.
+
+**Dead letters.** A record a consumer cannot process after its retries is copied unchanged to `<topic>.DLT`
+(`order-events.DLT`, `inventory-events.DLT`, `payment-events.DLT`). Spring Kafka adds the `kafka_dlt-original-*`
+headers (topic, partition, offset, consumer group, exception), so one DLT per topic is enough to tell which consumer
+gave up and why (§5.3, F14).
 
 ### Decision 3-1 — each service keeps its own copy of the event records
 
@@ -208,7 +213,7 @@ Database per service on one PostgreSQL instance (Brief §5). Schemas are created
 | Call | Style | Why |
 |---|---|---|
 | client to gateway to any service | sync HTTP | the caller is waiting for the answer |
-| order to inventory `/check` | sync Feign | the order cannot be accepted without knowing whether stock exists |
+| order to inventory `/check` | sync Feign, order-service's own client-credentials token (FR-14) | the order cannot be accepted without knowing whether stock exists |
 | order to product `/{id}` | sync Feign | the order's total must be priced before it is stored |
 | order to payment | **async Kafka** | the customer must not wait for a charge, and payment may be down (NFR-01) |
 | inventory, payment, notification, analytics reacting to a state change | **async Kafka** | the producer's work is already committed; reacting is not its concern |
@@ -284,6 +289,21 @@ State checks are the second guard: an order moves to `CONFIRMED` only from `PEND
 a reservation is `RESERVED`. This is what makes `OrderConfirmed` and `PaymentCompleted`, which both confirm the same
 order, safe to receive in either order or twice.
 
+### Decision 5-4 — how the stock check fails
+
+| | |
+|---|---|
+| **Decision** | Resilience4j on order → inventory, applied from the outside in as **Retry → CircuitBreaker → Bulkhead → Feign call**. The time limit is the Feign connect/read timeout (1 s / 2 s). One fallback only, on the outermost layer, mapping any failure to `503 STOCK_CHECK_UNAVAILABLE`. `OutOfStockException` is ignored by the breaker and not retried. |
+| **Options** | (a) Resilience4j `@TimeLimiter`; (b) Feign timeouts as the time limit; (c) a fallback on every layer (the first version). |
+| **Reason** | `@TimeLimiter` only decorates `CompletableFuture` methods: on a synchronous call it does nothing, so (a) would have been configuration with no effect (it was, until we caught it). (b) bounds the same wait without moving the call to another thread, which would lose the trace and security context. With (c) the breaker's fallback turned the real failure into a new exception that the retry then re-ran, and a sold-out product counted as an outage: three out-of-stock orders opened the circuit and every customer got `503`. |
+| **Trade-off** | The breaker no longer sees "no stock" at all, so a broken inventory that wrongly answers `available: false` for everything would not open the circuit; it shows up as a spike in `409` instead. The bulkhead (25 concurrent calls, 50 ms wait) rejects a burst above that with `503` even when inventory is healthy. |
+| **Revisit when** | order-service moves to a reactive client (then use `@TimeLimiter`), or k6 shows bulkhead rejections at the NFR-02 load. |
+
+Evidence: `OrderSyncIntegrationTest` (sold-out run keeps the circuit `CLOSED` with one call per order; a 3 s inventory is
+cut to `503` within the timeout; repeated `500`s open the circuit and later orders fail fast without calling
+inventory; a full bulkhead rejects at once) and `ResilienceConfigContractTest`, which pins these values in
+`config-repo/order-service.yml`.
+
 ### 5.3 Topics, groups and ordering
 
 | Topic | Produced by | Consumer groups |
@@ -291,12 +311,16 @@ order, safe to receive in either order or twice.
 | `order-events` | order | `inventory-service`, `notification-service`, `order-service-analytics` |
 | `inventory-events` | inventory | `payment-service`, `order-service` |
 | `payment-events` | payment | `order-service`, `inventory-service` |
-| `order-events.retry-N`, `order-events.DLT` | `@RetryableTopic` in notification | `notification-service` |
+| `order-events.retry-N` | `@RetryableTopic` in notification | `notification-service` |
+| `order-events.DLT`, `inventory-events.DLT`, `payment-events.DLT` | the error handler of any consumer that gave up: notification, inventory, order, payment, analytics | none; read by hand for replay (`kafka_dlt-original-consumer-group` names the consumer) |
 
 - **Ordering** is per order, not global: the key is `orderId`, so one order's events share a partition. Different
   orders are processed in parallel, which is what lets the platform scale.
 - **Groups** are per service, so adding a consumer (analytics) never steals messages from an existing one.
 - **Replay** is possible for any consumer by resetting its group offset; the dedup tables make that safe.
+- **Retry policy** for the Saga consumers (order, inventory, payment): 3 retries 1 s apart, then the DLT and an
+  `ALERT dead-letter` log line. Unreadable JSON, and in order-service an outcome that contradicts a final state
+  (`PaymentCompleted` for an order already `CANCELLED`), skip the retries: retrying cannot fix them.
 
 ---
 
@@ -312,8 +336,8 @@ proven without it.
 | F1 | Payment service is down | consumer lag on `inventory-events`; the pod is not ready | the order is accepted and stays `PENDING` | events wait in Kafka; when payment returns it charges and the order reaches `CONFIRMED`. Nothing is lost (NFR-01) | chaos step in §8 |
 | F2 | Kafka is down when an order is placed | `outbox_event` rows stay `PENDING` | the order is accepted as `PENDING` | the outbox row is committed with the order; the poller drains it when the broker returns | `OutboxPublisherTest` |
 | F3 | The same event is delivered twice | a `processed_event` primary-key hit | nothing | the consumer skips it inside the same transaction as its state change (5-3) | `InventoryServiceTest`, `PaymentIdempotencyIT` |
-| F4 | Inventory is down during the stock check | circuit-breaker state on `/actuator/health` | `503 STOCK_CHECK_UNAVAILABLE`, fast | retry twice, then the fallback. **No order row is written**, so nothing is left half-done | `OrderSyncIntegrationTest` |
-| F5 | There is not enough stock | `InventoryReservationFailed` count | `409 OUT_OF_STOCK` | rejected before any order row exists; payment is never reached | `OrderSyncIntegrationTest` |
+| F4 | Inventory is down or slow during the stock check | circuit-breaker state on `/actuator/health` | `503 STOCK_CHECK_UNAVAILABLE`, fast | 2 s read timeout, one retry, then the fallback; after repeated failures the circuit opens and orders fail fast without calling inventory. **No order row is written**, so nothing is left half-done (5-4) | `OrderSyncIntegrationTest` |
+| F5 | There is not enough stock | `409` rate on `POST /orders` | `409 OUT_OF_STOCK` | rejected before any order row exists; payment is never reached. Not retried and not counted by the circuit breaker, so sold-out products never block other orders (5-4) | `OrderSyncIntegrationTest` |
 | F6 | The charge is declined | `PaymentFailed` events | the order becomes `CANCELLED` and a notice is sent | inventory releases the reservation on `PaymentFailed`; stock returns to `available` | `PaymentSagaKafkaIT`, `DeclinedPaymentIT` |
 | F7 | Stock is taken between the check and the reservation | `InventoryReservationFailed` count | the order is created, then becomes `CANCELLED` | the synchronous check is advisory; the atomic conditional `UPDATE` is what actually decides, so the platform never oversells | `StockRepositoryTest` |
 | F8 | The publisher crashes after `send` but before marking `SENT` | the same `eventId` seen twice downstream | nothing | at-least-once plus F3 | covered by F3 |
@@ -321,7 +345,10 @@ proven without it.
 | F10 | A saga never finishes (payment down for a long time) | orders still `PENDING` past the timeout | the order becomes `CANCELLED` and the customer is told | order-service sweeps `PENDING` orders older than 10 minutes and publishes `OrderCancelled`; inventory releases the stock on it | `PendingOrderSweeperTest`, `OrderServiceTest` |
 | F11 | A cancel event is missed, leaving stock held | the NFR-05 query returns a non-zero count | nothing visible; stock would silently leak | the sweeper releases `RESERVED` rows whose order is in `cancelled_order` and older than 30 s | `StockRepositoryTest`, NFR-05 query |
 | F12 | Redis is down | cache errors in the logs; the limiter stops counting | product reads are slower but still `200` | reads fall back to the database; the rate limiter **fails open**, availability chosen over protection (D7.4) | documented trade-off |
-| F13 | Keycloak is down | JWKS fetch errors at the gateway | existing tokens keep working until they expire; no new logins | the gateway caches the JWKS keys | not tested |
+| F13 | Keycloak is down | JWKS fetch errors at the gateway | existing tokens keep working until they expire; no new logins | the gateway caches the JWKS keys; order-service reuses its cached service token until it expires, then stock checks fail as F4 | `ServiceTokenIntegrationTest` (token refused → `503`) |
+| F14 | A Saga consumer in order or inventory keeps failing (database error, bug) | `ALERT dead-letter` log line; records on `<topic>.DLT` | the order stays `PENDING` until it is retried or F10 cancels it | 3 retries 1 s apart; a transient error usually clears within them. Then the record is parked on the DLT and the partition keeps moving. Unreadable JSON goes to the DLT at once | `OrderSagaDeadLetterIT`, `InventorySagaDeadLetterIT` |
+| F15 | Payment completes for an order the timeout already cancelled | `ALERT dead-letter` on `payment-events.DLT` | the customer was charged for a cancelled order | not retried (the conflict is permanent); the parked record is the work item for a manual refund (`POST /api/v1/payments/{id}/refund`) | `OrderSagaDeadLetterIT.shouldParkConflictImmediately` |
+| F16 | Inventory is slow and order requests pile up | bulkhead rejections (`503`) | `503 STOCK_CHECK_UNAVAILABLE` at once instead of a hanging request | the bulkhead caps concurrent stock checks at 25, so request threads are not all stuck on one slow dependency | `OrderSyncIntegrationTest.shouldRejectImmediately_whenBulkheadIsFull` |
 
 **NFR-05 query** (must return `0`):
 
@@ -355,11 +382,11 @@ knows the order's state is the one that decides the saga is dead.
 | **Trade-off** | It is a log line, not a repair. Someone has to act on it. |
 | **Revisit when** | It fires in practice. Then the alert should become a metric with a Prometheus rule. |
 
-**Known gap (open, not fixed):** the Kafka listeners in order-service and inventory-service catch every exception and
-only log it, so a failed saga step is dropped rather than retried. The platform stays consistent because of the
-sweepers (F10, F11), but a transient database error silently costs one event. The fix is to let the exception reach
-Spring Kafka's error handler so it retries, with a DLT per consumer as notification already has. Left open
-deliberately: it changes failure behaviour across two services and needs its own test pass.
+**Closed gap (was open until G4):** the Kafka listeners in order-service and inventory-service used to catch every
+exception and only log it, so a transient database error silently dropped a Saga step. They now let the exception
+reach Spring Kafka's `DefaultErrorHandler`: 3 retries, then `<topic>.DLT` with an alert (F14), the same design as
+payment-service. A repeated outcome (`CONFIRMED` twice, `CANCELLED` twice) is a no-op rather than an error, so only
+real conflicts reach the DLT (F15).
 
 ---
 
