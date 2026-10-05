@@ -6,9 +6,9 @@
 
 | Member | GitHub | Owns (docs/TEAM-GUIDE.md §1) |
 |---|---|---|
-| A — `<name>` | `<@user>` | api-gateway · product-service · notification-service · Keycloak realm · Helm · ArgoCD · k6 |
-| B — `<name>` | `<@user>` | order-service · inventory-service · config-server · eureka-server · tracing |
-| C — `<name>` | `<@user>` | payment-service · Bonus B2 · Dockerfiles · CI · Kubernetes · Grafana |
+| A — Nourhan Fahmy | [@13nour11](https://github.com/13nour11) | api-gateway · product-service · notification-service · Keycloak realm · Helm · ArgoCD · k6 |
+| B — Mohammed Selim | [@M7mdselim](https://github.com/M7mdselim) | order-service · inventory-service · config-server · eureka-server · tracing |
+| C — Doaa Amr | [@doaaamr1201](https://github.com/doaaamr1201) | payment-service · Bonus B2 · Dockerfiles · CI · Kubernetes · Grafana |
 
 ## 1. Working hours
 
@@ -57,6 +57,6 @@
 
 | Member | Signature | Date |
 |---|---|---|
-| A | | |
-| B | | |
-| C | | |
+| A — Nourhan Fahmy | | |
+| B — Mohammed Selim | | |
+| C — Doaa Amr | | |
