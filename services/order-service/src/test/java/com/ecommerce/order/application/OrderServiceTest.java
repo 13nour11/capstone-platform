@@ -10,6 +10,7 @@ import com.ecommerce.order.api.dto.OrderItemRequest;
 import com.ecommerce.order.api.dto.OrderResponse;
 import com.ecommerce.order.domain.Order;
 import com.ecommerce.order.domain.OrderStatus;
+import com.ecommerce.order.domain.exception.IllegalOrderStateException;
 import com.ecommerce.order.domain.exception.OrderNotFoundException;
 import com.ecommerce.order.domain.exception.OutOfStockException;
 import com.ecommerce.order.domain.exception.ServiceUnavailableException;
@@ -193,6 +194,46 @@ class OrderServiceTest {
         verify(outboxEventRepository).save(outbox.capture());
         assertThat(outbox.getValue().getEventType()).isEqualTo("OrderCancelled");
         assertThat(outbox.getValue().getPayload()).contains("SAGA_TIMEOUT");
+    }
+
+    @Test
+    @DisplayName("NFR-10: a cancel for an order the timeout already cancelled is a no-op, not a DLT record")
+    void shouldIgnoreCancel_whenOrderIsAlreadyCancelled() {
+        Order cancelled = order("cust-1");
+        cancelled.cancel();
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(cancelled));
+
+        orderService.cancelOrder("evt-late-fail", "ord-123", "CARD_DECLINED");
+
+        verify(outboxEventRepository, never()).save(any());
+        verify(processedEventRepository).save(any());
+    }
+
+    @Test
+    @DisplayName("NFR-10: a second confirmation for a CONFIRMED order is a no-op")
+    void shouldIgnoreConfirm_whenOrderIsAlreadyConfirmed() {
+        Order confirmed = order("cust-1");
+        confirmed.confirm();
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(confirmed));
+
+        orderService.confirmOrder("evt-dup-pay", "ord-123");
+
+        verify(outboxEventRepository, never()).save(any());
+        verify(processedEventRepository).save(any());
+    }
+
+    @Test
+    @DisplayName("NFR-10: PaymentCompleted for a CANCELLED order is a conflict and is not marked processed")
+    void shouldRejectConfirm_whenOrderIsAlreadyCancelled() {
+        Order cancelled = order("cust-1");
+        cancelled.cancel();
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(cancelled));
+
+        assertThatThrownBy(() -> orderService.confirmOrder("evt-late-pay", "ord-123"))
+                .isInstanceOf(IllegalOrderStateException.class);
+
+        verify(outboxEventRepository, never()).save(any());
+        verify(processedEventRepository, never()).save(any());
     }
 
     private static Order order(String customerId) {

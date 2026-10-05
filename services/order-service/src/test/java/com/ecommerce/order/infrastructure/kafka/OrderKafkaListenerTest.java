@@ -13,7 +13,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.nio.charset.StandardCharsets;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class OrderKafkaListenerTest {
@@ -88,5 +91,26 @@ class OrderKafkaListenerTest {
         listener.onInventoryEvent(record);
 
         verify(orderService).cancelOrder("evt-inv-3", "ord-300", "OUT_OF_STOCK");
+    }
+
+    @Test
+    @DisplayName("NFR-10: an unreadable payload fails as InvalidEventException so it skips retries")
+    void shouldRejectUnreadablePayload() {
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("payment-events", 0, 0L, "ord-400", "{not json");
+        record.headers().add(new RecordHeader("eventType", "PaymentCompleted".getBytes(StandardCharsets.UTF_8)));
+
+        assertThatThrownBy(() -> listener.onPaymentEvent(record)).isInstanceOf(InvalidEventException.class);
+        verifyNoInteractions(orderService);
+    }
+
+    @Test
+    @DisplayName("NFR-10: a failure in the Saga step reaches the error handler instead of being swallowed")
+    void shouldPropagateFailure_soTheErrorHandlerCanRetry() {
+        String payload = "{\"eventId\":\"evt-pay-5\",\"orderId\":\"ord-500\"}";
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("payment-events", 0, 0L, "ord-500", payload);
+        record.headers().add(new RecordHeader("eventType", "PaymentCompleted".getBytes(StandardCharsets.UTF_8)));
+        doThrow(new IllegalStateException("database unavailable")).when(orderService).confirmOrder("evt-pay-5", "ord-500");
+
+        assertThatThrownBy(() -> listener.onPaymentEvent(record)).hasMessage("database unavailable");
     }
 }
