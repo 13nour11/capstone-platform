@@ -58,8 +58,9 @@ public class OrderEventsListener {
             topicSuffixingStrategy = TopicSuffixingStrategy.SUFFIX_WITH_INDEX_VALUE,
             exclude = InvalidEventException.class)
     @KafkaListener(topics = TOPIC, groupId = "${spring.kafka.consumer.group-id:notification-service}")
-    public void onOrderEvent(String message) {
-        toNotification(message).ifPresent(notifications::notifyCustomer);
+    public void onOrderEvent(String message,
+                             @Header(name = "eventType", required = false) String eventTypeHeader) {
+        toNotification(message, eventTypeHeader).ifPresent(notifications::notifyCustomer);
     }
 
     @DltHandler
@@ -72,39 +73,58 @@ public class OrderEventsListener {
     }
 
     Optional<OrderNotification> toNotification(String message) {
-        EventEnvelope event = parse(message);
-        Type type = NOTIFIED_EVENTS.get(event.eventType());
-        if (type == null) {
-            log.debug("Skipping eventType={} eventId={}", event.eventType(), event.eventId());
-            return Optional.empty();
-        }
-        JsonNode payload = event.payload();
-        String orderId = text(payload, "orderId").orElse(event.aggregateId());
-        String customerId = text(payload, "customerId")
-                .orElseThrow(() -> new InvalidEventException("customerId missing in event " + event.eventId()));
-        if (orderId == null) {
-            throw new InvalidEventException("orderId missing in event " + event.eventId());
-        }
-        return Optional.of(new OrderNotification(event.eventId(), type, orderId, customerId,
-                text(payload, "reason").orElse(null)));
+        return toNotification(message, null);
     }
 
-    private EventEnvelope parse(String message) {
+    /**
+     * Accepts both shapes the platform has used: the flat event the producers actually publish
+     * ({@code {eventId, orderId, customerId, ...}} with the type in the {@code eventType} Kafka
+     * header, ADD §3.2), and the wrapped {@link EventEnvelope} with a nested {@code payload}.
+     */
+    Optional<OrderNotification> toNotification(String message, String eventTypeHeader) {
+        JsonNode root = parse(message);
+        String eventId = text(root, "eventId")
+                .orElseThrow(() -> new InvalidEventException("eventId is required"));
+        String eventType = Optional.ofNullable(eventTypeHeader)
+                .or(() -> text(root, "eventType"))
+                .orElseThrow(() -> new InvalidEventException(
+                        "eventType is required, in the Kafka header or the body, for event " + eventId));
+
+        Type type = NOTIFIED_EVENTS.get(eventType);
+        if (type == null) {
+            log.debug("Skipping eventType={} eventId={}", eventType, eventId);
+            return Optional.empty();
+        }
+
+        // Wrapped envelope: the business fields sit under "payload". Flat event: they are at the top.
+        JsonNode fields = root.hasNonNull("payload") ? root.get("payload") : root;
+        String orderId = text(fields, "orderId").orElse(text(root, "aggregateId").orElse(null));
+        if (orderId == null) {
+            throw new InvalidEventException("orderId missing in event " + eventId);
+        }
+        String customerId = text(fields, "customerId")
+                .orElseThrow(() -> new InvalidEventException("customerId missing in event " + eventId));
+
+        return Optional.of(new OrderNotification(eventId, type, orderId, customerId,
+                text(fields, "reason").orElse(null)));
+    }
+
+    private JsonNode parse(String message) {
         try {
-            EventEnvelope event = objectMapper.readValue(message, EventEnvelope.class);
-            if (event == null || event.eventId() == null || event.eventType() == null) {
-                throw new InvalidEventException("eventId and eventType are required");
+            JsonNode root = objectMapper.readTree(message);
+            if (root == null || !root.isObject()) {
+                throw new InvalidEventException("Event body must be a JSON object");
             }
-            return event;
+            return root;
         } catch (JsonProcessingException e) {
             throw new InvalidEventException("Malformed event JSON", e);
         }
     }
 
-    private static Optional<String> text(JsonNode payload, String field) {
-        return Optional.ofNullable(payload)
-                .map(node -> node.get(field))
-                .filter(node -> !node.isNull())
+    private static Optional<String> text(JsonNode node, String field) {
+        return Optional.ofNullable(node)
+                .map(n -> n.get(field))
+                .filter(value -> !value.isNull())
                 .map(JsonNode::asText);
     }
 }

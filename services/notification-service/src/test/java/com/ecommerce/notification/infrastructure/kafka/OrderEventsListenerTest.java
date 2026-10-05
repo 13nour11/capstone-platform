@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
+import java.util.Optional;
+
 import org.junit.jupiter.api.Test;
 
 import com.ecommerce.notification.application.SendOrderNotificationService;
@@ -64,5 +66,48 @@ class OrderEventsListenerTest {
     void shouldRejectAsPoison_whenEventIdIsMissing() {
         assertThatThrownBy(() -> listener.toNotification("{\"eventType\":\"OrderConfirmed\"}"))
                 .isInstanceOf(InvalidEventException.class);
+    }
+
+    @Test
+    void shouldNotifyFromTheFlatEventTheProducersActuallyPublish() {
+        // order-service publishes the event's own fields at the top level and puts the type in the
+        // eventType Kafka header. Requiring a nested "payload" sent every order event to the DLT.
+        String event = """
+                {"eventId":"e5","orderId":"ord-5","customerId":"c-5",
+                 "occurredAt":"2026-10-05T22:07:17Z"}""";
+
+        Optional<OrderNotification> notification = listener.toNotification(event, "OrderConfirmed");
+
+        assertThat(notification).isPresent();
+        assertThat(notification.get().orderId()).isEqualTo("ord-5");
+        assertThat(notification.get().customerId()).isEqualTo("c-5");
+        assertThat(notification.get().type()).isEqualTo(Type.ORDER_CONFIRMED);
+    }
+
+    @Test
+    void shouldReadTheCancelReasonFromAFlatEvent() {
+        String event = """
+                {"eventId":"e6","orderId":"ord-6","customerId":"c-6","reason":"PAYMENT_FAILED"}""";
+
+        Optional<OrderNotification> notification = listener.toNotification(event, "OrderCancelled");
+
+        assertThat(notification).isPresent();
+        assertThat(notification.get().reason()).isEqualTo("PAYMENT_FAILED");
+    }
+
+    @Test
+    void shouldSkipAnEventTypeItDoesNotNotifyOn_fromTheHeader() {
+        String event = """
+                {"eventId":"e7","orderId":"ord-7","customerId":"c-7"}""";
+
+        assertThat(listener.toNotification(event, "OrderPlaced")).isEmpty();
+    }
+
+    @Test
+    void shouldPreferTheHeaderTypeOverTheBody() {
+        String event = """
+                {"eventId":"e8","eventType":"OrderPlaced","orderId":"ord-8","customerId":"c-8"}""";
+
+        assertThat(listener.toNotification(event, "OrderConfirmed")).isPresent();
     }
 }
