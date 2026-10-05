@@ -10,7 +10,7 @@ Local cluster plus the platform's infrastructure: PostgreSQL, Kafka + Zookeeper,
 
 | Tool | Check |
 |---|---|
-| Docker Desktop, 6 GB+ memory | `docker info` |
+| Docker Desktop, 12 GB+ memory (8 GB is not enough for the whole platform + ArgoCD) | `docker info` |
 | kind | `kind version` |
 | kubectl | `kubectl version --client` |
 | repo-root `.env` | copied from `.env.example`, no `change-me` left |

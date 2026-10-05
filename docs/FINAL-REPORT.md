@@ -43,7 +43,7 @@ member's commits) and then fixes what the merge exposed — see §4.
 | NFR-05 | immediate release + sweeper for cancelled orders; evidence query in ADD §4 | `StockRepositoryTest`, `InventorySagaIT` |
 | NFR-06 | Brave → Zipkin, Kafka observation, outbox continues the stored trace, ECS JSON logs | E2E (Zipkin trace services, JSON log line) |
 | NFR-07 | JaCoCo ≥ 60 % on `*.application` per module (build fails otherwise); Testcontainers in every DB-owning service | `mvn verify` (§4) |
-| NFR-08 | `docker compose up`; `helm install` / ArgoCD | E2E on compose; kind + ArgoCD: all Applications Synced, self-heal shown, full Healthy blocked by the laptop's memory (§5) |
+| NFR-08 | `docker compose up`; `helm install` / ArgoCD | E2E on compose; kind + ArgoCD: all 10 Applications Synced and Healthy, self-heal shown, order saga through NodePort 30080 (§5) |
 | NFR-09 | Flyway in every DB service, `ddl-auto=validate`; all APIs under `/api/v1` | Testcontainers ITs run the migrations |
 | NFR-10 | outbox (at least once) + idempotent consumers + DLT | `PaymentSagaKafkaIT`, `NotificationKafkaIT`, `InventorySagaIT`, listener tests |
 
@@ -86,7 +86,8 @@ member's commits) and then fixes what the merge exposed — see §4.
 
 ## 5. Verification results
 
-*Runs on the integration machine (Windows 11, Docker Desktop 29.6, Docker VM 12 CPUs / 8 GB), 2026-10-05.*
+*Runs on the integration machine (Windows 11, Docker Desktop 29.6, Docker VM 12 CPUs / 8 GB; 12 GB for the final
+kind run), 2026-10-05/06.*
 
 **Build and tests** (`mvn verify` in `maven:3.9-eclipse-temurin-21`, Testcontainers PostgreSQL / Redis / Kafka):
 
@@ -96,7 +97,7 @@ member's commits) and then fixes what the merge exposed — see §4.
 | api-gateway | 46 | met |
 | product-service | 46 | met |
 | inventory-service | 50 | met |
-| order-service | 44 | met |
+| order-service | 45 | met |
 | payment-service | 74 | met |
 | notification-service | 24 | met |
 | review-service | 9 | met |
@@ -136,19 +137,26 @@ infra manifests, Helm chart and ArgoCD `infra-app.yaml` + `services-appset.yaml`
 + one commit pointing the image tags at locally built images loaded into kind, i.e. what the CI `deploy-tags` job
 commits.
 
-- ArgoCD generated all 9 service Applications plus `infra`; **all 10 reached `Synced`** at the `env/dev` revision.
-- **Self-heal shown:** `kubectl scale deploy/notification-service --replicas=0` → Application OutOfSync → automated
-  sync (`initiatedBy.automated: true`, `autoHealAttemptsCount: 1`) → replicas back to 1 after 56 s.
+- ArgoCD generated all 9 service Applications plus `infra`; **all 10 are `Synced` and `Healthy`** at the `env/dev`
+  revision (final run on a fresh cluster with Docker Desktop at 12 GB; 17/17 pods Ready about 23 min after the
+  Applications were created, most of it image pulls; the services crash-loop until `infra` is ready, then recover
+  on their own as described in `deployment/argocd/README.md`).
+- **Self-heal shown** (twice): `kubectl scale deploy/notification-service --replicas=0` → Application OutOfSync →
+  automated sync (`initiatedBy.automated: true`, `autoHealAttemptsCount: 1`) → replicas back to 1 after 56 s; in the
+  final run `kubectl scale deploy/product-service --replicas=0` → automated sync → pod Ready again after 20 s,
+  Application `Synced`/`Healthy`.
+- **Working platform on Kubernetes:** from the host, a Keycloak token for `customer1` (port 8180) → `GET
+  /api/v1/products` via NodePort 30080 → 200; `POST /api/v1/orders` → 201 `PENDING` → `CONFIRMED` (saga through
+  Kafka, inventory and payment in the cluster); the same order without a token → 401.
 - GitOps update shown: two manifest fixes were committed here, merged into `env/dev` and applied by ArgoCD
   (Kafka Service, Prometheus config — see §4).
 - Hardening read off the running pods: uid/gid 10001, `runAsNonRoot`, read-only root filesystem, one ServiceAccount
   per service, no API token mounted (checked inside the gateway pod), no RBAC bindings, startup/readiness probes on
   `/actuator/health/*`, DB passwords from `<service>-secrets`. The gateway answered on NodePort 30080 from the host.
-- **Not achieved: all Applications `Healthy`.** api-gateway, config-server, eureka-server and notification-service
-  were Healthy; the database services, Kafka/Zookeeper and Keycloak kept failing probes. The kind node (all 17
-  platform workloads + ArgoCD + control plane in Docker Desktop's 8 GB VM) was memory-starved: load average 142 on
-  12 CPUs, 74 MB free, memory pressure (PSI) 60 % some / 26 % full, 10.7 M pages swapped in. This is a resource
-  limit of the integration laptop, not a manifest error; the cluster was deleted afterwards.
+- **Memory requirement:** a first run with Docker Desktop at 8 GB reached `Synced` but only 4/10 `Healthy`: the kind
+  node (17 platform workloads + ArgoCD + control plane) was memory-starved (load average 142 on 12 CPUs, 74 MB free,
+  PSI 60 % some / 26 % full). With the WSL 2 VM raised to 12 GB (`%USERPROFILE%\.wslconfig`: `memory=12GB`) the node
+  used ≈ 5.9 GB with load ≈ 4 and everything became Healthy. No manifest change was needed for this.
 
 ## 6. Open items for the team
 
@@ -156,9 +164,9 @@ commits.
 - Record the S25 Architecture Review's two risks in ADD §6 and the peer-review result in the ADD header.
 - Re-run k6 smoke/load/stress on the demo machine for the G3 evidence (the integration-laptop numbers are in the
   Performance Report).
-- Kubernetes: give Docker Desktop more memory (≥ 12 GB; this laptop has 16 GB) or use a bigger machine, push the
-  branch and create `env/dev` once (`git push origin main:env/dev`), then follow `deployment/argocd/README.md` to
-  show all Applications Synced **and** Healthy.
+- Kubernetes on the demo machine: Docker Desktop with ≥ 12 GB, push the branch and create `env/dev` once
+  (`git push origin main:env/dev`), then follow `deployment/argocd/README.md` (verified here against a local git
+  server, see §5).
 - Capture a Zipkin trace screenshot and a Grafana panel screenshot for G3.
 - Known technical debt: order-service is not a Resource Server (ADD D7.1); no Pact contract test; notification
   dedup is in memory; single Kafka broker; no NetworkPolicies; test JVMs take > 30 s to exit (Surefire kills the fork
