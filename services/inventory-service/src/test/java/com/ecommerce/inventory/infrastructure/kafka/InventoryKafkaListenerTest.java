@@ -19,7 +19,10 @@ import java.nio.charset.StandardCharsets;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class InventoryKafkaListenerTest {
@@ -116,5 +119,27 @@ class InventoryKafkaListenerTest {
         listener.onPaymentEvent(record);
 
         verify(inventoryService).confirmReservation(eq("evt-4"), eq("ord-4"));
+    }
+
+    @Test
+    @DisplayName("NFR-10: an unreadable payload fails as InvalidEventException so it skips retries")
+    void shouldRejectUnreadablePayload() {
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("order-events", 0, 0L, "ord-9", "{not json");
+        record.headers().add(new RecordHeader("eventType", "OrderPlaced".getBytes(StandardCharsets.UTF_8)));
+
+        assertThatThrownBy(() -> listener.onOrderEvent(record)).isInstanceOf(InvalidEventException.class);
+        verifyNoInteractions(inventoryService);
+    }
+
+    @Test
+    @DisplayName("NFR-10: a failed release reaches the error handler instead of silently leaking stock")
+    void shouldPropagateFailure_soTheErrorHandlerCanRetry() {
+        String payload = "{\"eventId\":\"evt-9\",\"orderId\":\"ord-9\",\"reason\":\"CARD_DECLINED\"}";
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("payment-events", 0, 0L, "ord-9", payload);
+        record.headers().add(new RecordHeader("eventType", "PaymentFailed".getBytes(StandardCharsets.UTF_8)));
+        doThrow(new IllegalStateException("database unavailable"))
+                .when(inventoryService).releaseReservation("evt-9", "ord-9", "CARD_DECLINED");
+
+        assertThatThrownBy(() -> listener.onPaymentEvent(record)).hasMessage("database unavailable");
     }
 }

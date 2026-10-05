@@ -151,6 +151,12 @@ public class OrderServiceImpl implements OrderService {
         }
 
         orderRepository.findById(orderId).ifPresent(order -> {
+            // A second success signal for the same order is a no-op. A success for an order that is
+            // already CANCELLED is a real conflict: order.confirm() throws and the record goes to the DLT.
+            if (order.getStatus() == OrderStatus.CONFIRMED) {
+                log.info("Order {} already CONFIRMED; event {} changes nothing", orderId, eventId);
+                return;
+            }
             order.confirm();
             orderRepository.save(order);
 
@@ -174,6 +180,11 @@ public class OrderServiceImpl implements OrderService {
         }
 
         orderRepository.findById(orderId).ifPresent(order -> {
+            // e.g. the Saga timeout cancelled it first, then PaymentFailed arrived: already consistent.
+            if (order.getStatus() == OrderStatus.CANCELLED) {
+                log.info("Order {} already CANCELLED; event {} changes nothing", orderId, eventId);
+                return;
+            }
             order.cancel();
             orderRepository.save(order);
 
