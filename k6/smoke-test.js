@@ -2,7 +2,7 @@
 //   k6 run -e K6_PASSWORD=<customer1 password> k6/smoke-test.js
 import { sleep } from 'k6';
 import { verifyLogin } from './lib/auth.js';
-import { browseProducts, ordersEnabled, placeOrder } from './lib/flows.js';
+import { browseProducts, ordersEnabled, placeOrder, prepareOrders } from './lib/flows.js';
 
 export const options = {
   vus: 1,
@@ -16,13 +16,15 @@ export const options = {
 export function setup() {
   if (ordersEnabled) {
     verifyLogin();
+    return prepareOrders();
   }
+  return {};
 }
 
-export default function () {
+export default function (data) {
   browseProducts();
   if (ordersEnabled) {
-    placeOrder();
+    placeOrder(data);
   }
   sleep(1);
 }

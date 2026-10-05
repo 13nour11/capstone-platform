@@ -6,7 +6,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { verifyLogin } from './lib/auth.js';
-import { GATEWAY, ordersEnabled, placeOrder } from './lib/flows.js';
+import { GATEWAY, ordersEnabled, placeOrder, prepareOrders } from './lib/flows.js';
 
 const scenarios = {
   browse: {
@@ -36,7 +36,9 @@ export const options = {
 export function setup() {
   if (ordersEnabled) {
     verifyLogin();
+    return prepareOrders();
   }
+  return {};
 }
 
 export function browse() {
@@ -44,7 +46,7 @@ export function browse() {
   check(res, { 'list 200': (r) => r.status === 200 });
 }
 
-export function order() {
-  placeOrder();
+export function order(data) {
+  placeOrder(data);
   sleep(1);
 }
