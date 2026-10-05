@@ -4,12 +4,19 @@ name: capstone-platform
 
 x-spring-env: &spring-env
   SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+  # The ${...} placeholders used in application.yml and config-repo/ (their defaults point at localhost)
+  CONFIG_SERVER_URL: http://config-server:8888
+  EUREKA_URL: http://eureka-server:8761/eureka/
   EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
   MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
   SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  REDIS_HOST: redis
   # Tokens are issued to browsers and k6 on localhost; keys are fetched inside the network.
   SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:8180/realms/ecommerce-platform
   SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8180/realms/ecommerce-platform/protocol/openid-connect/certs
+  KEYCLOAK_ISSUER_URI: http://localhost:8180/realms/ecommerce-platform
+  KEYCLOAK_JWK_SET_URI: http://keycloak:8180/realms/ecommerce-platform/protocol/openid-connect/certs
 
 x-db-env: &db-env
   SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
@@ -216,6 +223,8 @@ services:
     environment:
       <<: [*spring-env, *db-env]
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/product_db
+      POSTGRES_HOST: postgres
+      PRODUCT_DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deployment/docker/.env}
       SPRING_DATA_REDIS_HOST: redis
     depends_on:
       eureka-server:
@@ -235,6 +244,7 @@ services:
     environment:
       <<: [*spring-env, *db-env]
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/order_db
+      INVENTORY_SERVICE_URL: http://inventory-service:8084
     depends_on:
       eureka-server:
         condition: service_healthy
