@@ -251,8 +251,14 @@ services:
       INVENTORY_SERVICE_URL: http://inventory-service:8084
       PRODUCT_SERVICE_URL: http://product-service:8081
       PRODUCT_PRICE_CACHE_TTL_SECONDS: ${PRODUCT_PRICE_CACHE_TTL_SECONDS:-60}
+      # FR-14: the stock check carries order-service's own client-credentials token
+      ORDER_SERVICE_AUTH_ENABLED: "true"
+      ORDER_SERVICE_CLIENT_SECRET: ${ORDER_SERVICE_CLIENT_SECRET:?Set ORDER_SERVICE_CLIENT_SECRET in deployment/docker/.env}
+      KEYCLOAK_TOKEN_URI: http://keycloak:8180/realms/ecommerce-platform/protocol/openid-connect/token
     depends_on:
       eureka-server:
+        condition: service_healthy
+      keycloak:
         condition: service_healthy
       postgres:
         condition: service_healthy
@@ -288,6 +294,8 @@ services:
     environment:
       <<: [*spring-env, *db-env]
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/inventory_db
+      # FR-14: /check only for the SERVICE role (order-service's client-credentials token)
+      INVENTORY_REQUIRE_SERVICE_TOKEN: "true"
     depends_on:
       eureka-server:
         condition: service_healthy

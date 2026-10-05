@@ -56,12 +56,33 @@ mvn -pl services/order-service -am verify             # one module
 
 ### 4. Service-to-service authentication (FR-14)
 
-order-service calls inventory's `/check` with its own client-credentials token (Keycloak client `order-service`,
-realm role `SERVICE`), and inventory then rejects the call without it. Both sides ship **switched off**, because the
-order-service container must first receive the client secret. Turn them on together:
+order-service calls inventory's `/check` with its **own** client-credentials token (Keycloak client `order-service`,
+realm role `SERVICE`), and inventory rejects the call without it (`401`) or with a customer token (`403`). It is on in
+Compose and Helm:
 
-| Service | Variable | Value |
-|---|---|---|
+| Service | Variable | Compose | Kubernetes |
+|---|---|---|---|
+| order-service | `ORDER_SERVICE_AUTH_ENABLED` | `true` | `true` (values) |
+| order-service | `ORDER_SERVICE_CLIENT_SECRET` | from `.env` (same value Keycloak imports) | Secret `order-service-client` (`scripts/create-k8s-secrets.sh`) |
+| order-service | `KEYCLOAK_TOKEN_URI` | `http://keycloak:8180/…/token` | `http://keycloak.ecommerce:8180/…/token` |
+| inventory-service | `INVENTORY_REQUIRE_SERVICE_TOKEN` | `true` | `true` (values) |
+
+Run from the IDE without Keycloak, both default to off (`config-repo`). Evidence: `ServiceTokenIntegrationTest`,
+`InventoryServiceTokenSecurityTest`, and the FR-14 checks of `scripts/e2e-check.sh`.
+
+### 5. End-to-end acceptance check
+
+```bash
+scripts/e2e-check.sh          # after verify-l0.sh is green; ~4 minutes
+```
+
+39 checks against the running platform, through the gateway with real Keycloak tokens: every FR (catalogue,
+security, rate limit, cache, order happy path, no stock, idempotent payment, compensation, notifications, FR-14,
+B2) and the live NFRs (NFR-01 payment down, NFR-05 query, NFR-06 one trace + JSON logs, NFR-10 DLT, Prometheus
+targets). It toggles the payment failure switch and stops payment-service once, restoring both. Ends with
+`E2E GREEN` or the failing checks.
+
+---|---|---|
 | order-service | `ORDER_SERVICE_AUTH_ENABLED` | `true` |
 | order-service | `ORDER_SERVICE_CLIENT_SECRET` | the same value Keycloak imports (`.env`) |
 | order-service | `KEYCLOAK_TOKEN_URI` | `http://keycloak:8180/realms/ecommerce-platform/protocol/openid-connect/token` (Compose) |
