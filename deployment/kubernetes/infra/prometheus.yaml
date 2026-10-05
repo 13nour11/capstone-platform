@@ -23,7 +23,6 @@ data:
               - inventory-service:8084
               - notification-service:8085
               - review-service:8086
-          - review-service:8086
         relabel_configs:
           - source_labels: [__address__]
             regex: '([^:]+):\d+'
