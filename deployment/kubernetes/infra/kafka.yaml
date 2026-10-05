@@ -6,6 +6,9 @@ metadata:
   labels:
     app: kafka
 spec:
+  # Kafka advertises itself as kafka:29092 and connects to that address before it is Ready; without this the
+  # Service has no endpoint for the not-yet-ready broker and Kafka can never become ready.
+  publishNotReadyAddresses: true
   selector:
     app: kafka
   ports:
