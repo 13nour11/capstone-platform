@@ -26,7 +26,7 @@ set -a
 source <(sed -e 's/\r$//' "$ENV_FILE")
 set +a
 
-for name in POSTGRES_PASSWORD KEYCLOAK_ADMIN_PASSWORD GRAFANA_ADMIN_PASSWORD; do
+for name in POSTGRES_PASSWORD KEYCLOAK_ADMIN_PASSWORD GRAFANA_ADMIN_PASSWORD ORDER_SERVICE_CLIENT_SECRET KC_TEST_USER_PASSWORD; do
   value="${!name:-}"
   [[ -n "$value" && "$value" != "change-me" ]] || fail "Set $name in $ENV_FILE."
 done
@@ -48,6 +48,11 @@ apply secret generic db-credentials \
 apply secret generic keycloak-admin \
   --from-literal=KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN:-admin}" \
   --from-literal=KEYCLOAK_ADMIN_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD"
+
+# Resolves the ${...} placeholders in realm-export.json at import time.
+apply secret generic keycloak-realm-env \
+  --from-literal=ORDER_SERVICE_CLIENT_SECRET="$ORDER_SERVICE_CLIENT_SECRET" \
+  --from-literal=KC_TEST_USER_PASSWORD="$KC_TEST_USER_PASSWORD"
 
 apply secret generic grafana-admin \
   --from-literal=GF_SECURITY_ADMIN_USER="${GRAFANA_ADMIN_USER:-admin}" \
