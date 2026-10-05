@@ -17,6 +17,12 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Never contacted: tests authenticate with jwt() post-processors
+          jwk-set-uri: http://localhost:1/certs
   kafka:
     bootstrap-servers: localhost:9092
     listener:

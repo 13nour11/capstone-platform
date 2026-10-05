@@ -99,6 +99,31 @@ class InventoryKafkaListenerTest {
     }
 
     @Test
+    @DisplayName("NFR-10: an unreadable payload is thrown as InvalidEventException (dead-letter topic, no retries)")
+    void shouldThrowInvalidEvent_whenPayloadIsNotJson() {
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("order-events", 0, 0L, "ord-9", "not-json");
+        record.headers().add(new RecordHeader("eventType", "OrderPlaced".getBytes(StandardCharsets.UTF_8)));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> listener.onOrderEvent(record))
+                .isInstanceOf(InvalidEventException.class);
+    }
+
+    @Test
+    @DisplayName("NFR-10: a processing failure propagates to the error handler (retry, then DLT)")
+    void shouldPropagateFailure_whenServiceFails() {
+        String payload = """
+                {"eventId": "evt-10", "orderId": "ord-10", "reason": "X", "occurredAt": "2026-10-04T12:00:00Z"}
+                """;
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("payment-events", 0, 0L, "ord-10", payload);
+        record.headers().add(new RecordHeader("eventType", "PaymentFailed".getBytes(StandardCharsets.UTF_8)));
+        org.mockito.Mockito.doThrow(new IllegalStateException("db down"))
+                .when(inventoryService).releaseReservation("evt-10", "ord-10", "X");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> listener.onPaymentEvent(record))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     @DisplayName("Should invoke confirmReservation when PaymentCompleted event is received")
     void shouldConfirmOnPaymentCompleted() {
         String payload = """

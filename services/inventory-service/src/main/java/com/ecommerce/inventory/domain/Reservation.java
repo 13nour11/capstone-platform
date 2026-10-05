@@ -2,6 +2,8 @@ package com.ecommerce.inventory.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
@@ -14,7 +16,11 @@ import java.time.Instant;
 public class Reservation {
 
     @Id
-    @Column(name = "order_id", length = 64)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    /** One row per order line: (order_id, product_id) is unique (V3). */
+    @Column(name = "order_id", nullable = false, length = 64)
     private String orderId;
 
     @Column(name = "product_id", nullable = false)
@@ -43,6 +49,10 @@ public class Reservation {
 
     public static Builder builder() {
         return new Builder();
+    }
+
+    public Long getId() {
+        return id;
     }
 
     public String getOrderId() {

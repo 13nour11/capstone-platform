@@ -25,6 +25,10 @@ public class Stock {
     @Column(name = "version")
     private Long version;
 
+    /** B4: true while a LowStock alert is outstanding for this product (deduplication per product). */
+    @Column(name = "low_stock_alerted", nullable = false)
+    private boolean lowStockAlerted;
+
     public Stock() {
     }
 
@@ -69,6 +73,28 @@ public class Stock {
 
     public void setVersion(Long version) {
         this.version = version;
+    }
+
+    public boolean isLowStockAlerted() {
+        return lowStockAlerted;
+    }
+
+    /**
+     * B4: decides whether this stock level raises a LowStock alert. Only a NORMAL to LOW transition does;
+     * going back to the threshold or above re-arms the alert.
+     *
+     * @return true exactly when a new alert must be published
+     */
+    public boolean evaluateLowStock(int threshold) {
+        if (available < threshold) {
+            if (lowStockAlerted) {
+                return false;
+            }
+            lowStockAlerted = true;
+            return true;
+        }
+        lowStockAlerted = false;
+        return false;
     }
 
     public boolean hasAvailable(int quantity) {

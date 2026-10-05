@@ -6,18 +6,21 @@ import com.ecommerce.inventory.domain.event.OrderConfirmed;
 import com.ecommerce.inventory.domain.event.OrderPlaced;
 import com.ecommerce.inventory.domain.event.PaymentCompleted;
 import com.ecommerce.inventory.domain.event.PaymentFailed;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.messaging.handler.annotation.Header;
-import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 
+/**
+ * Inventory's Saga consumers. A failure is not swallowed: it propagates to the container's error handler,
+ * which retries and then parks the record on {@code <topic>.DLT} (NFR-10). Unreadable payloads go there at once.
+ */
 @Component
 public class InventoryKafkaListener {
 
@@ -38,24 +41,17 @@ public class InventoryKafkaListener {
         String payload = record.value();
         log.info("Received event {} on topic {}", eventType, record.topic());
 
-        try {
-            switch (eventType) {
-                case "OrderPlaced" -> {
-                    OrderPlaced event = objectMapper.readValue(payload, OrderPlaced.class);
-                    inventoryService.processOrderPlaced(event);
-                }
-                case "OrderCancelled" -> {
-                    OrderCancelled event = objectMapper.readValue(payload, OrderCancelled.class);
-                    inventoryService.releaseReservation(event.eventId(), event.orderId(), event.reason());
-                }
-                case "OrderConfirmed" -> {
-                    OrderConfirmed event = objectMapper.readValue(payload, OrderConfirmed.class);
-                    inventoryService.confirmReservation(event.eventId(), event.orderId());
-                }
-                default -> log.debug("Ignoring unrecognized order event type: {}", eventType);
+        switch (eventType) {
+            case "OrderPlaced" -> inventoryService.processOrderPlaced(read(payload, OrderPlaced.class));
+            case "OrderCancelled" -> {
+                OrderCancelled event = read(payload, OrderCancelled.class);
+                inventoryService.releaseReservation(event.eventId(), event.orderId(), event.reason());
             }
-        } catch (Exception e) {
-            log.error("Failed to process order event of type {}: {}", eventType, e.getMessage(), e);
+            case "OrderConfirmed" -> {
+                OrderConfirmed event = read(payload, OrderConfirmed.class);
+                inventoryService.confirmReservation(event.eventId(), event.orderId());
+            }
+            default -> log.debug("Ignoring unrecognized order event type: {}", eventType);
         }
     }
 
@@ -66,20 +62,24 @@ public class InventoryKafkaListener {
         String payload = record.value();
         log.info("Received event {} on topic {}", eventType, record.topic());
 
-        try {
-            switch (eventType) {
-                case "PaymentFailed" -> {
-                    PaymentFailed event = objectMapper.readValue(payload, PaymentFailed.class);
-                    inventoryService.releaseReservation(event.eventId(), event.orderId(), event.reason());
-                }
-                case "PaymentCompleted" -> {
-                    PaymentCompleted event = objectMapper.readValue(payload, PaymentCompleted.class);
-                    inventoryService.confirmReservation(event.eventId(), event.orderId());
-                }
-                default -> log.debug("Ignoring unrecognized payment event type: {}", eventType);
+        switch (eventType) {
+            case "PaymentFailed" -> {
+                PaymentFailed event = read(payload, PaymentFailed.class);
+                inventoryService.releaseReservation(event.eventId(), event.orderId(), event.reason());
             }
-        } catch (Exception e) {
-            log.error("Failed to process payment event of type {}: {}", eventType, e.getMessage(), e);
+            case "PaymentCompleted" -> {
+                PaymentCompleted event = read(payload, PaymentCompleted.class);
+                inventoryService.confirmReservation(event.eventId(), event.orderId());
+            }
+            default -> log.debug("Ignoring unrecognized payment event type: {}", eventType);
+        }
+    }
+
+    private <T> T read(String payload, Class<T> type) {
+        try {
+            return objectMapper.readValue(payload, type);
+        } catch (JsonProcessingException e) {
+            throw new InvalidEventException("Unreadable " + type.getSimpleName() + " payload", e);
         }
     }
 
@@ -93,7 +93,8 @@ public class InventoryKafkaListener {
             if (root.has("eventType")) {
                 return root.get("eventType").asText();
             }
-        } catch (Exception ignored) {
+        } catch (JsonProcessingException ignored) {
+            // No eventType header and no JSON body: nothing this consumer handles
         }
         return "UNKNOWN";
     }

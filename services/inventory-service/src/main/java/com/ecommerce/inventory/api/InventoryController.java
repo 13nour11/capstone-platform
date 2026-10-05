@@ -17,6 +17,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 @Validated
 @RestController
 @RequestMapping("/api/v1/inventory")
@@ -33,6 +35,12 @@ public class InventoryController {
             @RequestParam("productId") @NotNull Long productId,
             @RequestParam("quantity") @Positive int quantity) {
         return ResponseEntity.ok(inventoryService.checkStock(productId, quantity));
+    }
+
+    /** Low-stock query (target architecture): products below the configured threshold. ADMIN. */
+    @GetMapping("/low-stock")
+    public ResponseEntity<List<StockResponse>> getLowStock() {
+        return ResponseEntity.ok(inventoryService.getLowStock());
     }
 
     @GetMapping("/{productId}")

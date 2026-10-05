@@ -3,9 +3,10 @@ server:
 
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/inventory_db}
-    username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    # Containers and pods override these with SPRING_DATASOURCE_* (one login per service database, NFR-04)
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/inventory_db
+    username: inventory_user
+    password: ${INVENTORY_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
@@ -19,7 +20,6 @@ spring:
     baseline-on-migrate: true
     locations: classpath:db/migration
   kafka:
-    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -33,24 +33,18 @@ spring:
 inventory:
   outbox:
     poll-interval-ms: 500
-  reservation:
-    ttl-seconds: 30
   sweeper:
+    # NFR-05: reservations of cancelled orders are released within 10 s (the requirement allows 30 s)
     fixed-delay-ms: 10000
+  low-stock:
+    # B4: a product with fewer available units raises one LowStock alert
+    threshold: 5
   kafka:
     topics:
       order-events: order-events
       inventory-events: inventory-events
       payment-events: payment-events
-
-eureka:
-  client:
-    service-url:
-      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8761/eureka/}
-    register-with-eureka: true
-    fetch-registry: true
-  instance:
-    prefer-ip-address: true
+      inventory-alerts: inventory-alerts
 
 management:
   endpoints:
@@ -60,9 +54,3 @@ management:
   endpoint:
     health:
       show-details: always
-  tracing:
-    sampling:
-      probability: 1.0
-  zipkin:
-    tracing:
-      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
