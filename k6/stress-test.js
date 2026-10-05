@@ -3,7 +3,7 @@
 //   k6 run -e K6_PASSWORD=<customer1 password> --summary-export k6/results/stress.json k6/stress-test.js
 import { sleep } from 'k6';
 import { verifyLogin } from './lib/auth.js';
-import { browseProducts, ordersEnabled, placeOrder } from './lib/flows.js';
+import { browseProducts, ordersEnabled, placeOrder, prepareOrders } from './lib/flows.js';
 
 const ORDER_SHARE = 0.2;
 
@@ -25,12 +25,14 @@ export const options = {
 export function setup() {
   if (ordersEnabled) {
     verifyLogin();
+    return prepareOrders();
   }
+  return {};
 }
 
-export default function () {
+export default function (data) {
   if (ordersEnabled && Math.random() < ORDER_SHARE) {
-    placeOrder();
+    placeOrder(data);
   } else {
     browseProducts();
   }

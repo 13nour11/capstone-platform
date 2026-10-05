@@ -26,6 +26,20 @@ function fetchToken() {
   return { value: body.access_token, expiresAt: Date.now() + body.expires_in * 1000 - REFRESH_MARGIN_MS };
 }
 
+/** One-off token for setup() as another user (e.g. admin for the stock top-up). */
+export function tokenFor(username, password) {
+  const res = http.post(TOKEN_URL, {
+    grant_type: 'password',
+    client_id: 'api-gateway',
+    username,
+    password,
+  }, { tags: { name: 'keycloak token' } });
+  if (!check(res, { 'token issued': (r) => r.status === 200 })) {
+    fail(`token request for ${username} failed with HTTP ${res.status}`);
+  }
+  return res.json().access_token;
+}
+
 /** Called from setup(): stops the run at once when the credentials are wrong. */
 export function verifyLogin() {
   fetchToken();
