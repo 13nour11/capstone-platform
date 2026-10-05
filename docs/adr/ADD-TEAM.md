@@ -176,15 +176,17 @@ envelope). Guarded by `NotificationKafkaIT.shouldNotifyCustomer_whenOrderService
 ## 4. Data Model
 
 Database per service on one PostgreSQL instance (Brief §5). Schemas are created **only** by Flyway; every service runs `ddl-auto=validate`.
+Drawing: [`docs/architecture/03-data-ownership.svg`](../architecture/03-data-ownership.svg).
 
 | Service | Database | Tables (migration) | Owner |
 |---|---|---|---|
-| product-service | `product_db` | *(owner A)* | A |
-| order-service | `order_db` | `orders`, `order_items` (`V1__init_orders`) | B |
+| product-service | `product_db` | `categories`, `products` (`V1__create_catalogue`), seed rows (`V2__seed_catalogue`) | A |
+| order-service | `order_db` | `orders`, `order_items` (`V1__init_orders`), `outbox_event` (`V2__order_outbox`), `processed_event` (`V3__order_processed_events`) | B |
 | order-service — B2 | `order_db` | `analytics_order`, `analytics_processed_event` (`V50__create_order_analytics`) | C |
-| inventory-service | `inventory_db` | `stock`, `reservation` (`V1__init_inventory`) | B |
+| inventory-service | `inventory_db` | `stock`, `reservation` (`V1__init_inventory`), `outbox_event`, `processed_event` (`V2__inventory_outbox_and_events`), `cancelled_order` and a per-item reservation key (`V3__reservation_per_item_and_cancelled_orders`) | B |
 | payment-service | `payment_db` | `payments`, `idempotency_keys`, `processed_event`, `outbox_event` (`V1__create_payment_tables`) | C |
 | notification-service | — | none; failed sends go to `<topic>.DLT` | A |
+| api-gateway | — (Redis) | rate-limit buckets in Redis; product-service also caches `product` / `products` there (FR-15). A cache only: losing Redis loses no data | A |
 
 ### Payment tables
 
