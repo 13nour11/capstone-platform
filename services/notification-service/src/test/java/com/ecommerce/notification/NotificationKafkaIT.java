@@ -9,6 +9,8 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import org.apache.kafka.clients.producer.ProducerRecord;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
 
@@ -67,6 +69,21 @@ class NotificationKafkaIT {
 
         verify(sender, timeout(WAIT.toMillis())).send(argThat(n -> n.orderId().equals(orderId)
                 && n.type() == OrderNotification.Type.ORDER_CONFIRMED));
+    }
+
+    @Test
+    void shouldNotifyCustomer_whenOrderServicePublishesTheFrozenContract() {
+        String orderId = newOrderId();
+        String body = """
+                {"eventId":"%s","orderId":"%s","customerId":"cust-9","reason":"PAYMENT_FAILED","occurredAt":"2026-10-01T10:00:00Z"}"""
+                .formatted(UUID.randomUUID(), orderId);
+        ProducerRecord<String, String> record = new ProducerRecord<>("order-events", orderId, body);
+        record.headers().add("eventType", "OrderCancelled".getBytes(StandardCharsets.UTF_8));
+
+        kafka.send(record).join();
+
+        verify(sender, timeout(WAIT.toMillis())).send(argThat(n -> n.orderId().equals(orderId)
+                && n.type() == OrderNotification.Type.ORDER_CANCELLED && "cust-9".equals(n.customerId())));
     }
 
     @Test
