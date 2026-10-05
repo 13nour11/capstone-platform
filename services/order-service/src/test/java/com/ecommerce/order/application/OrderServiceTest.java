@@ -136,21 +136,32 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("Should return order details when order exists")
-    void shouldGetOrderById_whenOrderExists() {
-        Order order = Order.builder()
-                .id("ord-123")
-                .customerId("cust-1")
-                .totalAmount(new BigDecimal("99.98"))
-                .status(OrderStatus.PENDING)
-                .createdAt(Instant.now())
-                .build();
-        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(order));
+    @DisplayName("Should return order details to the customer who placed it")
+    void shouldGetOrder_whenCallerOwnsIt() {
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(order("cust-1")));
 
-        OrderResponse response = orderService.getOrderById("ord-123");
+        OrderResponse response = orderService.getOrderForCustomer("ord-123", "cust-1", false);
 
         assertThat(response.orderId()).isEqualTo("ord-123");
         assertThat(response.status()).isEqualTo(OrderStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("Another customer's order is reported as not found, so ids cannot be probed")
+    void shouldHideOrderOwnedBySomeoneElse() {
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(order("cust-1")));
+
+        assertThatThrownBy(() -> orderService.getOrderForCustomer("ord-123", "cust-2", false))
+                .isInstanceOf(OrderNotFoundException.class)
+                .hasMessageContaining("ord-123");
+    }
+
+    @Test
+    @DisplayName("An ADMIN may read any customer's order")
+    void shouldLetAdminReadAnyOrder() {
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(order("cust-1")));
+
+        assertThat(orderService.getOrderForCustomer("ord-123", "admin-1", true).orderId()).isEqualTo("ord-123");
     }
 
     @Test
@@ -158,8 +169,18 @@ class OrderServiceTest {
     void shouldThrowException_whenOrderNotFound() {
         when(orderRepository.findById("ord-999")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> orderService.getOrderById("ord-999"))
+        assertThatThrownBy(() -> orderService.getOrderForCustomer("ord-999", "cust-1", false))
                 .isInstanceOf(OrderNotFoundException.class)
                 .hasMessageContaining("ord-999");
+    }
+
+    private static Order order(String customerId) {
+        return Order.builder()
+                .id("ord-123")
+                .customerId(customerId)
+                .totalAmount(new BigDecimal("99.98"))
+                .status(OrderStatus.PENDING)
+                .createdAt(Instant.now())
+                .build();
     }
 }

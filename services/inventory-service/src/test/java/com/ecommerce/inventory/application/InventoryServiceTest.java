@@ -250,6 +250,21 @@ class InventoryServiceTest {
     }
 
     @Test
+    @DisplayName("Confirm is idempotent across OrderConfirmed and PaymentCompleted")
+    void shouldConsumeOnceWhenBothConfirmingEventsArrive() {
+        Reservation reservation = new Reservation("ord-9", 101L, 1, ReservationStatus.RESERVED, Instant.now());
+        when(processedEventRepository.existsById(any(ProcessedEventId.class))).thenReturn(false);
+        when(reservationRepository.findByOrderId("ord-9")).thenReturn(List.of(reservation));
+
+        inventoryService.confirmReservation("evt-order-confirmed", "ord-9");
+        // Second confirming event for the same order: the row is CONSUMED now, not RESERVED.
+        inventoryService.confirmReservation("evt-payment-completed", "ord-9");
+
+        assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.CONSUMED);
+        verify(stockRepository, times(1)).confirmStockAtomic(101L, 1);
+    }
+
+    @Test
     @DisplayName("Multi-item order: reserves and releases each product by its own quantity")
     void shouldReserveAndReleaseEachProductSeparately() {
         OrderPlaced event = new OrderPlaced(

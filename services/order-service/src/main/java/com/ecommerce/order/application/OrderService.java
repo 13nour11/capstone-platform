@@ -10,8 +10,6 @@ public interface OrderService {
 
     OrderResponse createOrder(String customerId, CreateOrderRequest request);
 
-    OrderResponse getOrderById(String orderId);
-
     OrderResponse getOrderForCustomer(String orderId, String customerId, boolean admin);
 
     List<OrderResponse> getOrdersByCustomerId(String customerId);

@@ -210,15 +210,6 @@ public class OrderServiceImpl implements OrderService {
         return stuck.size();
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public OrderResponse getOrderById(String orderId) {
-        log.info("Fetching order by id: {}", orderId);
-        return orderRepository.findById(orderId)
-                .map(this::mapToResponse)
-                .orElseThrow(() -> new OrderNotFoundException(orderId));
-    }
-
     /**
      * Someone else's order is reported as not found, so the endpoint cannot be used to discover
      * which order ids exist.
