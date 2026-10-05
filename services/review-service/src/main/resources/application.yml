@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: review-service
+  config:
+    import:
+      # Local runs: secrets from the git-ignored repo-root .env (containers get real env vars instead)
+      - optional:file:../../.env[.properties]
+      # Everything else comes from config-repo/ through config-server
+      - configserver:${CONFIG_SERVER_URL:http://localhost:8888}
