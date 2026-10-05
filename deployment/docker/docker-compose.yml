@@ -125,6 +125,10 @@ services:
   zipkin:
     image: openzipkin/zipkin:3
     restart: unless-stopped
+    environment:
+      # In-memory storage keeps 500k spans by default, more than the image's 160 MB heap holds: with 100 % sampling
+      # Zipkin ran out of memory and restarted under load (Performance Report §5). Keep the most recent spans only.
+      MEM_MAX_SPANS: "20000"
     ports: ["9411:9411"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9411/health"]
