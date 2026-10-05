@@ -1,4 +1,18 @@
-# --- management/metrics (C) ---
+# Shared defaults for every service that imports config-server.
+# Each block is its own YAML document (---): write only inside your own block (docs/TEAM-GUIDE.md §1.2).
+
+# --- platform defaults (Starter) ---
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: true
+
+spring:
+  jpa:
+    open-in-view: false
+
 management:
   endpoints:
     web:
@@ -8,6 +22,56 @@ management:
     health:
       probes:
         enabled: true
+
+---
+# --- security (A) ---
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Checked against the token's iss claim. Keycloak always issues for http://localhost:8180 (KC_HOSTNAME).
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/ecommerce-platform}
+          # Where signing keys are fetched. Containers/pods override it with the in-network Keycloak address.
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/certs}
+
+---
+# --- tracing/logging (B) ---
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+    propagation:
+      type: w3c
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+  level:
+    com.ecommerce: INFO
+    org.springframework.kafka: INFO
+
+---
+# --- kafka (B) ---
+spring:
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      retries: 3
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+---
+# --- management/metrics (C) ---
+management:
   metrics:
     tags:
       application: ${spring.application.name}

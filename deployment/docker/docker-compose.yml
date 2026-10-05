@@ -106,6 +106,8 @@ services:
       KC_HOSTNAME_URL: http://localhost:8180
       KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
       KC_HEALTH_ENABLED: "true"
+      KC_TEST_USER_PASSWORD: ${KC_TEST_USER_PASSWORD:-password}
+      ORDER_SERVICE_CLIENT_SECRET: ${ORDER_SERVICE_CLIENT_SECRET:-order-secret-123}
       JAVA_OPTS_APPEND: -Xmx512m
     ports:
       - "8180:8180"
@@ -232,6 +234,8 @@ services:
     environment:
       <<: [*spring-env, *db-env]
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/order_db
+      INVENTORY_SERVICE_URL: http://inventory-service:8084
+
     depends_on:
       eureka-server:
         condition: service_healthy

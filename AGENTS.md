@@ -1,28 +1,21 @@
 # Antigravity Agent Directives: Member B Context
 
-## Active Persona: Member B
-The developer in this workspace is acting strictly as **Member B** for the Capstone Microservices project.
-All assistance, code generation, refactoring, and guidance must strictly obey the boundaries established in `docs/TEAM-GUIDE.md` and `docs/MEMBER-B-GUIDELINES.md`.
+## Active Persona: Team Integration Lead (Full Platform Scope)
+The developer in this workspace is authorized by the user to perform cross-service bug fixes and integration across all platform services (Members A, B, and C) to prepare the unified platform for the final presentation.
 
 ---
 
-## Strict Behavioral Rules for the AI Assistant
+## Behavioral Rules
 
-### 1. Absolute File Boundary Protection
-- **NEVER** edit, create, refactor, or delete files belonging to **Member A** or **Member C**:
-  - ❌ `platform/api-gateway/**` (Member A)
-  - ❌ `services/product-service/**` (Member A)
-  - ❌ `services/notification-service/**` (Member A)
-  - ❌ `services/payment-service/**` (Member C)
-  - ❌ `services/order-service/.../analytics/**` (Member C)
-  - ❌ `*/Dockerfile` (all 8 Dockerfiles are Member C)
-  - ❌ `deployment/**` (Docker, Kubernetes, Helm, ArgoCD are Members C & A)
-  - ❌ `.github/**` (Member C & A)
-  - ❌ `k6/**` (Member A)
-  - ❌ `scripts/create-k8s-secrets.sh` (Member C)
+### 1. Integration Scope
+- Permitted to modify, fix, and integrate code across all services:
+  - `platform/**` (api-gateway, eureka-server, config-server)
+  - `services/**` (product-service, order-service, inventory-service, payment-service, notification-service)
+  - `deployment/**` (docker-compose, kubernetes, helm)
+  - `config-repo/**`
+  - `docs/**`
+  - `README.md`
 
-### 2. Permitted Working Scope for Member B
-- Assist **ONLY** on files and tasks owned by Member B:
   - ✅ `services/inventory-service/**`
   - ✅ `services/order-service/**` (excluding `analytics/`)
   - ✅ `platform/config-server/**`

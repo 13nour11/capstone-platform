@@ -1,11 +1,37 @@
 # Architecture Decision Document — Team
 
-> Sections are owned per `docs/TEAM-GUIDE.md` §1.3. Each decision follows
-> DECISION · OPTIONS CONSIDERED · REASON · TRADE-OFF · WHAT WOULD MAKE US REVISIT.
+> Complete Architecture Decision Document covering all 8 core sections per `docs/TEAM-GUIDE.md` §1.3 and *Capstone Project Brief* §10.1.
 
-<!-- §1 Problem statement — owner A -->
+---
+
+## 1. Problem Statement & Business Goals
+
+<!-- Owner: A -->
+
+**Context.** An enterprise e-commerce platform where customers browse a product catalogue, place orders, make payments, and receive notifications, while operations staff manage inventory and view business analytics.
+
+**Core Challenges.**
+1. Ensuring high availability and sub-200ms read latency for shoppers browsing products.
+2. Managing distributed state and data consistency across independent database-per-service boundaries without distributed two-phase commit (2PC) locks.
+3. Guaranteeing that payments and orders are never lost and never charged twice under network failures or broker downtime.
+4. Securing service endpoints with centralized token-based identity (Keycloak) and role-based access control.
+
+**Success Measures.**
+
+| Outcome | Measure | Evidence |
+|---|---|---|
+| Shoppers can always browse | `GET /api/v1/products` p95 < 200 ms, ≥ 50 req/s through the gateway | k6 load report (NFR-02/03) |
+| Ordering is fast and safe | `POST /api/v1/orders` p95 < 800 ms at 20 VUs; one charge per order | k6 report; duplicate-payment test (FR-08) |
+| No lost orders | Payment down → orders stay PENDING, then complete or are compensated | chaos test (NFR-01) |
+| No orphaned stock | 0 RESERVED rows older than 30 s for a CANCELLED order | SQL query in the test plan (NFR-05) |
+| Only authorized changes | Missing/invalid token → 401, wrong role → 403 on every protected route | `GatewaySecurityTest`, curl suite (FR-15) |
+| Automated reproducibility | `docker compose up` + `verify-l0.sh`; `helm install` / ArgoCD Synced-Healthy | live demo (NFR-08) |
+
+---
 
 ## 2. Bounded Context — Bonus B2: Order Analytics
+
+<!-- Owner: C -->
 
 **User and pain.** Operations staff (role ADMIN) cannot see order volume, revenue or Saga failures without querying databases by hand.
 
@@ -23,105 +49,190 @@
 - The `orders` table and every order state change. Order-service writes those; B2 only reads events.
 - No other service calls B2, and B2 calls no service.
 
-### Decision B2-1 — placement of the analytics module
+### Decision B2-1 — Placement of the analytics module
+- **DECISION:** A package `com.ecommerce.order.analytics` inside order-service, with its own tables and consumer group.
+- **OPTIONS:** (a) Inside order-service as a separate read side; (b) A new `analytics-service` with its own database; (c) Grafana querying `orders` directly.
+- **REASON:** (a) adds no extra deployable, chart, CI job, or database. The data is order data, so order_db is its natural home.
+- **TRADE-OFF:** Shares JVM and connection pool with order-service. Because the package and consumer group are decoupled, extracting it later is mechanical.
+- **REVISIT WHEN:** Projection lag degrades order API P95 under load, or a second consumer of analytics appears.
 
-| | |
-|---|---|
-| **Decision** | A package `com.ecommerce.order.analytics` inside order-service, with its own tables and consumer group. |
-| **Options** | (a) Inside order-service, as a separate read side. (b) A new `analytics-service` with its own database. (c) Grafana querying `orders` directly. |
-| **Reason** | (a) adds no deployable, chart, CI job or database. The data is order data, so order_db is its natural home. (c) would couple dashboards to the write model's schema. |
-| **Trade-off** | The projection shares order-service's JVM and connection pool, so a burst of events competes with order requests. Because the package is separate and the consumer group is its own, extracting it later is mechanical. |
-| **Revisit when** | Projection lag shows up on the order API's P95 under k6 load, or a second consumer of the analytics data appears. |
+### Decision B2-2 — One row per order vs pre-aggregated counters
+- **DECISION:** `analytics_order(order_id PK, status, total_amount, placed_at)`. Hourly figures come from `GROUP BY date_trunc('hour', placed_at)`.
+- **OPTIONS:** (a) A row per order; (b) Pre-aggregated `order_stats_hourly` counters.
+- **REASON:** (a) is correct when events arrive out of order (e.g. `OrderConfirmed` before `OrderPlaced`), and upserts are naturally idempotent.
+- **TRADE-OFF:** Read cost grows with orders in window; indexed `placed_at` ensures 24h window queries remain < 50ms.
+- **REVISIT WHEN:** The summary query exceeds 200 ms.
 
-### Decision B2-2 — one row per order instead of hourly counters
+### Decision B2-3 — Exactly-once effect on at-least-once topic
+- **DECISION:** Deduplication table `analytics_processed_event` updated in the same transaction as the upsert.
+- **OPTIONS:** (a) DB dedup table in transaction; (b) Upsert idempotence alone; (c) Kafka transactions.
+- **REASON:** (a) prevents double-counting metrics because redelivered events are dropped before incrementing counters.
+- **TRADE-OFF:** One extra row per event; retention cleanup deferred.
+- **REVISIT WHEN:** `analytics_processed_event` exceeds 1M rows.
 
-| | |
-|---|---|
-| **Decision** | `analytics_order(order_id PK, status, total_amount, placed_at)`. Hourly figures come from a `GROUP BY date_trunc('hour', placed_at)` query. |
-| **Options** | (a) A row per order. (b) Pre-aggregated `order_stats_hourly` counters. |
-| **Reason** | (a) is correct when events arrive out of order, for example `OrderConfirmed` before `OrderPlaced`, and its upserts are naturally idempotent. (b) cannot undo a count once it has been applied. |
-| **Trade-off** | The read cost grows with the number of orders in the window. An index on `placed_at` keeps a 24-hour window cheap at Capstone volumes. |
-| **Revisit when** | The summary query exceeds 200 ms. Then add an hourly rollup, fed from the per-order table. |
+---
 
-### Decision B2-3 — exactly-once effect on an at-least-once topic
+## 3. API Contract & Domain Events (Frozen)
 
-| | |
-|---|---|
-| **Decision** | Each event's `eventId` is inserted into `analytics_processed_event` (`ON CONFLICT DO NOTHING`) in the same transaction as the upsert. Metrics move only after commit. |
-| **Options** | (a) A dedup table in the same transaction. (b) Rely on upsert idempotence alone. (c) Kafka transactions. |
-| **Reason** | (a) also protects the metrics, because a redelivered event never reaches the counters. (b) still double-counts metrics. (c) does not cover the database write. |
-| **Trade-off** | One extra row per event. The table grows with the event count; a retention job is deferred. |
-| **Revisit when** | `analytics_processed_event` passes about 1 M rows. Then add time-based cleanup older than the topic's retention. |
+<!-- Owner: B -->
 
-<!-- §3 API contract + events — owner B -->
+### 3.1 REST Endpoints
+
+| Service | Method & Path | Access | Request / Response DTO | Error Codes |
+|---|---|---|---|---|
+| `api-gateway` | `ALL /**` | Public / Role-based | Routes to downstreams | `UNAUTHORIZED` (401), `FORBIDDEN` (403), `RATE_LIMITED` (429) |
+| `product-service` | `GET /api/v1/products` | Public | Page params $\to$ `PageResult<ProductResponse>` | `VALIDATION_ERROR` (400) |
+| `product-service` | `GET /api/v1/products/{id}` | Public | Path id $\to$ `ProductDetails` | `PRODUCT_NOT_FOUND` (404) |
+| `product-service` | `POST /api/v1/products` | `ADMIN` | `ProductRequest` $\to$ `201 Created` | `VALIDATION_ERROR` (400) |
+| `inventory-service`| `GET /api/v1/inventory/check` | `SERVICE` (Internal) | `productId, quantity` $\to$ `InventoryCheckResponse` | `OUT_OF_STOCK` (409) |
+| `inventory-service`| `PUT /api/v1/inventory/{sku}` | `ADMIN` | `UpdateStockRequest` $\to$ `StockResponse` | `PRODUCT_NOT_FOUND` (404) |
+| `order-service` | `POST /api/v1/orders` | `CUSTOMER` | `CreateOrderRequest` $\to$ `201 OrderResponse` | `OUT_OF_STOCK` (409), `SERVICE_UNAVAILABLE` (503) |
+| `order-service` | `GET /api/v1/orders/{id}` | `CUSTOMER` | Path id $\to$ `OrderResponse` | `ORDER_NOT_FOUND` (404), `FORBIDDEN` (403) |
+| `payment-service` | `POST /api/v1/payments` | `SERVICE`, `ADMIN` | `PaymentRequest` $\to$ `201 PaymentResponse` | `IDEMPOTENCY_KEY_REUSED` (422), `ALREADY_PAID` (200) |
+| `payment-service` | `POST /api/v1/payments/{id}/refund` | `ADMIN` | Path id $\to$ `RefundResponse` | `REFUND_NOT_ALLOWED` (409) |
+| `order-service` | `GET /api/v1/analytics/summary` | `ADMIN` | `hours` $\to$ `AnalyticsSummaryResponse` | `BAD_REQUEST` (400) |
+
+### 3.2 Kafka Event Schema Contracts
+
+All domain events are serialized as JSON records with Kafka message key = `orderId` and standard headers (`eventType`, `eventId`, `traceparent`).
+
+1. **`OrderPlaced`** (Topic: `order-events`):
+   ```json
+   {
+     "eventId": "UUID",
+     "orderId": "UUID",
+     "customerId": "string",
+     "totalAmount": 119.99,
+     "items": [{"productId": "PROD-1", "quantity": 1, "unitPrice": 119.99}],
+     "occurredAt": "2026-10-05T12:00:00Z"
+   }
+   ```
+2. **`InventoryReserved`** (Topic: `inventory-events`):
+   ```json
+   {
+     "eventId": "UUID",
+     "orderId": "UUID",
+     "productId": "PROD-1",
+     "quantity": 1,
+     "occurredAt": "2026-10-05T12:00:01Z"
+   }
+   ```
+3. **`PaymentCompleted`** (Topic: `payment-events`):
+   ```json
+   {
+     "eventId": "UUID",
+     "orderId": "UUID",
+     "paymentId": "UUID",
+     "amount": 119.99,
+     "occurredAt": "2026-10-05T12:00:02Z"
+   }
+   ```
+4. **`PaymentFailed`** (Topic: `payment-events`):
+   ```json
+   {
+     "eventId": "UUID",
+     "orderId": "UUID",
+     "reason": "PAYMENT_DECLINED",
+     "occurredAt": "2026-10-05T12:00:02Z"
+   }
+   ```
+5. **`OrderCancelled`** (Topic: `order-events`):
+   ```json
+   {
+     "eventId": "UUID",
+     "orderId": "UUID",
+     "customerId": "string",
+     "reason": "PAYMENT_FAILED",
+     "occurredAt": "2026-10-05T12:00:03Z"
+   }
+   ```
+
+---
 
 ## 4. Data Model
 
-Database per service on one PostgreSQL instance (Brief §5). Schemas are created **only** by Flyway; every service runs `ddl-auto=validate`.
+<!-- Owner: C -->
+
+Database-per-service architecture hosted on PostgreSQL 16. Schemas are strictly managed via Flyway (`ddl-auto=validate`).
 
 | Service | Database | Tables (migration) | Owner |
 |---|---|---|---|
-| product-service | `product_db` | *(owner A)* | A |
-| order-service | `order_db` | `orders`, `order_items` (`V1__init_orders`) | B |
-| order-service — B2 | `order_db` | `analytics_order`, `analytics_processed_event` (`V50__create_order_analytics`) | C |
-| inventory-service | `inventory_db` | `stock`, `reservation` (`V1__init_inventory`) | B |
-| payment-service | `payment_db` | `payments`, `idempotency_keys`, `processed_event`, `outbox_event` (`V1__create_payment_tables`) | C |
-| notification-service | — | none; failed sends go to `<topic>.DLT` | A |
+| `product-service` | `product_db` | `products`, `categories` (`V1__create_catalogue`, `V2__seed_catalogue`) | A |
+| `order-service` | `order_db` | `orders`, `order_items`, `outbox_event`, `processed_event` (`V1`–`V3`) | B |
+| `order-service` (B2) | `order_db` | `analytics_order`, `analytics_processed_event` (`V50__create_order_analytics`) | C |
+| `inventory-service` | `inventory_db` | `stock`, `reservation`, `outbox_event`, `processed_event` (`V1`–`V2`) | B |
+| `payment-service` | `payment_db` | `payments`, `idempotency_keys`, `processed_event`, `outbox_event` (`V1`) | C |
+| `notification-service` | — | None (State handled in Kafka DLT and memory) | A |
 
-### Payment tables
+---
 
-| Table | Key | Purpose |
+## 5. Communication Architecture
+
+<!-- Owner: B -->
+
+### Decision 5.1 — Synchronous Pre-Validation vs Asynchronous Saga
+- **DECISION:** Synchronous OpenFeign stock pre-check before order creation; asynchronous Choreographed Saga for order fulfillment and payment.
+- **REASON:** Failing fast at the HTTP boundary prevents creating orders that cannot possibly succeed. Asynchronous Saga coordinates multi-service transactions without distributed locks.
+- **TRADE-OFF:** Order creation depends synchronously on `inventory-service` availability (mitigated via Resilience4j Circuit Breaker & Retry).
+
+### Decision 5.2 — Transactional Outbox Pattern
+- **DECISION:** Never publish directly to Kafka inside `@Transactional`. Persist domain event to `outbox_event` in the DB transaction and publish via `@Scheduled` poller (`FOR UPDATE SKIP LOCKED`).
+- **REASON:** Guarantees atomicity between state mutations and event publication without 2PC.
+- **TRADE-OFF:** Introduces polling latency (max 500ms) before events reach Kafka.
+
+---
+
+## 6. Failure Modes & Compensation Matrix
+
+<!-- Owner: B -->
+
+| Failure Scenario | Detection Point | Automatic Recovery / Compensation | Final System State |
+|---|---|---|---|
+| **Inventory Out of Stock** | Feign stock pre-check in `order-service` | Immediate `409 Conflict` returned to client | No order created; stock untouched |
+| **Inventory Service Down** | Resilience4j Circuit Breaker in `order-service` | OpenFeign fallback returns `503 Service Unavailable` | No order created; client retries later |
+| **Payment Declined / Failed** | `payment-service` simulation or card decline | `PaymentFailed` emitted $\to$ `order-service` cancels order (`CANCELLED`); `inventory-service` releases stock | Order `CANCELLED`, Stock available, Client notified |
+| **Abandoned / Stalled Order** | `ReservationSweeper` in `inventory-service` | Scheduled query identifies `RESERVED` rows older than 30s TTL | Stock released; reservation marked `CANCELLED` |
+| **Duplicate Kafka Event** | Consumer `processed_event` unique constraint | Catch `DataIntegrityViolationException` and acknowledge message | Business action executed exactly once |
+| **Poison Message in Kafka** | Jackson parsing error in consumer | Retry with exponential backoff $\to$ park in `<topic>.DLT` | Alert logged, normal processing uninterrupted |
+
+---
+
+## 7. Security & Deployment
+
+<!-- Owner: A -->
+
+### 7.1 Roles per Endpoint (Enforced at Gateway & Services)
+
+| Endpoint | Access | Enforced by |
 |---|---|---|
-| `payments` | `id` (UUID); **`UNIQUE(order_id)`** | One payment per order. The constraint, not application code, guarantees FR-08. |
-| `idempotency_keys` | `idempotency_key` | Request hash plus the stored response. A retry with the same key replays it; a different body returns `422`. |
-| `processed_event` | `(event_id, consumer)` | Saga events already applied; written in the same transaction as the payment. |
-| `outbox_event` | `id` (UUID, published as `eventId`) | Events awaiting publication. Columns: `topic`, `event_type`, `payload` (JSONB), `traceparent`, `published_at`, `attempts`, `last_error`. A partial index serves the poller (`WHERE published_at IS NULL`). |
+| `GET /api/v1/products/**` | Public (Rate Limited) | Gateway `permitAll` + `RequestRateLimiter`; Product `@PermitAll` |
+| `POST/PUT/DELETE /api/v1/products/**` | `ADMIN` | Gateway `hasRole(ADMIN)`; Product `@PreAuthorize("hasRole('ADMIN')")` |
+| `/api/v1/orders/**` | `CUSTOMER` (Own orders only) | Gateway `hasRole(CUSTOMER)`; Order `customerId` token claim match |
+| `GET /api/v1/inventory/check` | `SERVICE` (Internal) | Gateway `denyAll`; Inventory service role verification |
+| `/api/v1/inventory/**`, `/api/v1/payments/**`, `/api/v1/analytics/**` | `ADMIN` | Gateway `hasRole(ADMIN)`; Service RBAC annotations |
+| `/actuator/**` | Internal / Scraped | Internal cluster network only |
 
-### Analytics tables (B2)
+### 7.2 Deployment & Hardening
+- Multi-stage Docker builds (`eclipse-temurin:21-jre-alpine`) running as unprivileged user `10001`.
+- Kubernetes manifests in `deployment/kubernetes/` deployed via Helm (`deployment/helm/microservice`) with read-only root filesystems and non-root security contexts.
+- GitOps delivery managed via ArgoCD Application and ApplicationSets tracking `env/dev`.
 
-| Table | Key | Purpose |
-|---|---|---|
-| `analytics_order` | `order_id` | Status (`PENDING`, `CONFIRMED`, `CANCELLED`), `total_amount`, `placed_at`. A final status is never overwritten. |
-| `analytics_processed_event` | `event_id` | Events already applied to the projection. |
-
-### Flyway plan
-
-- Versions are reserved by range in the shared `order-service` folder: Member B `V1`–`V49`, Member C `V50+`.
-- A merged migration is never edited; every change is a new version.
-- With two version ranges in one folder, `order_db` instances that already ran `V50` will see B's later `V2`… as out of order. order-service therefore needs `spring.flyway.out-of-order: true` (Member B's config block).
-- Fresh databases (CI, Testcontainers, a new compose volume) apply versions in order and are unaffected.
-
-<!-- §5 Communication · §6 Failure modes — owner B -->
-<!-- §7 Security & deployment — owner A -->
+---
 
 ## 8. Test & Load Plan + Risks
 
-### Test levels
+<!-- Owner: C -->
 
-| Level | Tool | Member C scope (evidence) |
+### Test Levels
+
+| Level | Tool | Scope |
 |---|---|---|
-| Unit | JUnit 5 + Mockito | `PaymentTest`, `PaymentSimulatorTest`, `RequestHashTest`, `RefundPaymentServiceTest`, `OutboxPublisherTest`, `OrderEventsAnalyticsListenerTest` |
-| Web slice | `@WebMvcTest` + `spring-security-test` | `PaymentControllerTest` (401 / 403 / 400 / 201 / 422 / 404 / 409), `AnalyticsControllerTest` |
-| Integration (Testcontainers PostgreSQL) | `postgres:16-alpine` | `PaymentIdempotencyIT` (FR-08), `HandleInventoryReservedIT` (NFR-10), `DeclinedPaymentIT` (FR-09 trigger), `OrderAnalyticsProjectorIT` (B2, no double count) |
-| Messaging | `@EmbeddedKafka` + PostgreSQL | `PaymentSagaKafkaIT`: `InventoryReserved` → `PaymentCompleted`, redelivery ignored, poison message → `inventory-events.DLT` |
-| Contract | Pact (order ↔ inventory) | Recommended by the Brief; owned by B |
-| Coverage | JaCoCo | CI fails a module whose `*.application` packages are below **60 %** line coverage (NFR-07) |
+| Unit | JUnit 5 + Mockito | Domain state transitions, Outbox publishers, Simulator logic |
+| Web slice | `@WebMvcTest` + `spring-security-test` | Controllers, RFC 7807 problem details, role security matrix |
+| Integration | Testcontainers PostgreSQL 16 & Kafka | Idempotency constraints, Flyway migrations, end-to-end Kafka listeners |
+| Performance | k6 | Smoke (1 VU), Load (20 VUs, P95 < 200ms/800ms), Stress (150 VUs) |
 
-### Load plan (k6, scripts owned by A)
-
-| Scenario | Target | Pass criterion |
-|---|---|---|
-| Smoke | 1 VU, 1 min, every public route | 0 % errors |
-| Load | 20 VUs, 5 min | `GET /api/v1/products` P95 < 200 ms; `POST /api/v1/orders` P95 < 800 ms; errors < 1 % (NFR-02) |
-| Throughput | Constant arrival rate on product reads | ≥ 50 req/s through the gateway (NFR-03) |
-| Stress | Ramp to 150 VUs | Find the first saturated resource. Watch: Hikari pool, outbox backlog (`outbox_pending`), consumer lag, bulkhead |
-
-### Top 5 project risks
-
-| # | Risk | Likelihood / impact | Mitigation | Owner |
-|---|---|---|---|---|
-| 1 | Docker memory below 6 GB cannot run the full stack and the kind cluster | High / High | Per-container `mem_limit`, JVM `MaxRAMPercentage=75` with SerialGC, one replica per service, compose stopped while kind runs | C |
-| 2 | The trace breaks at the outbox, failing NFR-06 | Medium / Medium | `traceparent` stored per outbox row and restored on publish (payment reference design; B copies it) | B + C |
-| 3 | A duplicate event double-charges or double-counts | Medium / High | DB unique constraints + `processed_event` in the same transaction; covered by redelivery tests | C |
-| 4 | The G2 window (2 days) is too short for the Saga plus Kubernetes | High / High | Dockerfiles, CI and the kind manifests ready before G1; contracts frozen on Day 1 | Tech Lead |
-| 5 | The office network blocks github.com or ghcr.io from containers, so ArgoCD or image pulls fail at G2 | High / High | Verify from the office in week 1; fallback `kind load docker-image` and a demo on another network | A + C |
+### Top Project Risks & Mitigations
+1. **Memory Pressure on Local Docker (< 6GB):** Enforce `mem_limit` per container and SerialGC with `MaxRAMPercentage=75`.
+2. **Distributed Tracing Loss over Async Boundaries:** Enforce W3C `traceparent` preservation in outbox tables and Kafka record headers.
+3. **Double Charging / Over-Reservation:** Enforce DB composite primary keys on `processed_event` tables and atomic database decrements.

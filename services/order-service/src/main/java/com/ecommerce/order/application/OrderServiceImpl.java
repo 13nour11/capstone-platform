@@ -43,16 +43,20 @@ public class OrderServiceImpl implements OrderService {
     private final InventoryServiceClient inventoryServiceClient;
     private final ObjectMapper objectMapper;
 
+    private final OrderPersistenceService orderPersistenceService;
+
     public OrderServiceImpl(OrderRepository orderRepository,
                             OutboxEventRepository outboxEventRepository,
                             ProcessedEventRepository processedEventRepository,
                             InventoryServiceClient inventoryServiceClient,
-                            ObjectMapper objectMapper) {
+                            ObjectMapper objectMapper,
+                            OrderPersistenceService orderPersistenceService) {
         this.orderRepository = orderRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.processedEventRepository = processedEventRepository;
         this.inventoryServiceClient = inventoryServiceClient;
         this.objectMapper = objectMapper;
+        this.orderPersistenceService = orderPersistenceService;
     }
 
     @Override
@@ -64,57 +68,8 @@ public class OrderServiceImpl implements OrderService {
             inventoryServiceClient.verifyStockAvailability(item.productId(), item.quantity());
         }
 
-        // 2. Persist order and outbox event in ONE database transaction
-        return persistOrderAndOutbox(customerId, request);
-    }
-
-    @Transactional
-    public OrderResponse persistOrderAndOutbox(String customerId, CreateOrderRequest request) {
-        String orderId = UUID.randomUUID().toString();
-
-        BigDecimal totalAmount = BigDecimal.ZERO;
-        Order order = Order.builder()
-                .id(orderId)
-                .customerId(customerId)
-                .status(OrderStatus.PENDING)
-                .createdAt(Instant.now())
-                .build();
-
-        for (OrderItemRequest itemReq : request.items()) {
-            OrderItem item = new OrderItem(itemReq.productId(), itemReq.quantity(), itemReq.unitPrice());
-            order.addItem(item);
-            totalAmount = totalAmount.add(item.getSubtotal());
-        }
-
-        Order orderToSave = Order.builder()
-                .id(order.getId())
-                .customerId(order.getCustomerId())
-                .totalAmount(totalAmount)
-                .status(order.getStatus())
-                .createdAt(order.getCreatedAt())
-                .items(order.getItems())
-                .build();
-
-        Order saved = orderRepository.save(orderToSave);
-
-        // Transactional Outbox: OrderPlaced event
-        List<OrderItemPayload> itemPayloads = saved.getItems().stream()
-                .map(item -> new OrderItemPayload(item.getProductId(), item.getQuantity(), item.getUnitPrice()))
-                .toList();
-
-        OrderPlaced event = new OrderPlaced(
-                UUID.randomUUID().toString(),
-                saved.getId(),
-                saved.getCustomerId(),
-                saved.getTotalAmount(),
-                itemPayloads,
-                saved.getCreatedAt()
-        );
-
-        saveOutboxEvent("Order", saved.getId(), "OrderPlaced", event);
-
-        log.info("Order placed and OutboxEvent persisted: orderId={}, status=PENDING", saved.getId());
-        return mapToResponse(saved);
+        // 2. Persist order and outbox event in ONE database transaction via proxy-managed delegate
+        return orderPersistenceService.persistOrderAndOutbox(customerId, request);
     }
 
     @Transactional
@@ -133,7 +88,7 @@ public class OrderServiceImpl implements OrderService {
                     order.getCustomerId(),
                     Instant.now()
             );
-            saveOutboxEvent("Order", order.getId(), "OrderConfirmed", event);
+            orderPersistenceService.saveOutboxEvent("Order", order.getId(), "OrderConfirmed", event);
             log.info("Order {} confirmed and OrderConfirmed event queued to outbox", orderId);
         });
 
@@ -153,15 +108,17 @@ public class OrderServiceImpl implements OrderService {
             OrderCancelled event = new OrderCancelled(
                     UUID.randomUUID().toString(),
                     order.getId(),
+                    order.getCustomerId(),
                     reason,
                     Instant.now()
             );
-            saveOutboxEvent("Order", order.getId(), "OrderCancelled", event);
+            orderPersistenceService.saveOutboxEvent("Order", order.getId(), "OrderCancelled", event);
             log.info("Order {} cancelled (reason: {}) and OrderCancelled event queued to outbox", orderId, reason);
         });
 
         markProcessed(eventId, "order-service");
     }
+
 
     @Override
     @Transactional(readOnly = true)
@@ -180,28 +137,6 @@ public class OrderServiceImpl implements OrderService {
                 .stream()
                 .map(this::mapToResponse)
                 .toList();
-    }
-
-    private void saveOutboxEvent(String aggregateType, String aggregateId, String eventType, Object payload) {
-        try {
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            String traceparent = UUID.randomUUID().toString(); // Default W3C traceparent carrier
-
-            OutboxEvent outboxEvent = new OutboxEvent(
-                    UUID.randomUUID().toString(),
-                    aggregateType,
-                    aggregateId,
-                    eventType,
-                    payloadJson,
-                    traceparent,
-                    OutboxStatus.PENDING,
-                    Instant.now()
-            );
-            outboxEventRepository.save(outboxEvent);
-        } catch (JsonProcessingException e) {
-            log.error("Failed to serialize outbox event payload", e);
-            throw new RuntimeException("Outbox serialization failure", e);
-        }
     }
 
     private boolean isAlreadyProcessed(String eventId, String consumer) {

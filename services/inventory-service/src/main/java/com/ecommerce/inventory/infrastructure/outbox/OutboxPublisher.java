@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 @Component
 public class OutboxPublisher {
@@ -62,14 +63,18 @@ public class OutboxPublisher {
                 record.headers().add(new RecordHeader("eventType",
                         event.getEventType().getBytes(StandardCharsets.UTF_8)));
 
-                kafkaTemplate.send(record);
+                // Synchronously wait for Kafka broker ACK to guarantee zero message loss
+                kafkaTemplate.send(record).get(5, TimeUnit.SECONDS);
                 event.setStatus(OutboxStatus.SENT);
                 outboxEventRepository.save(event);
                 log.info("Published inventory outbox event {} of type {} for aggregate {}",
                         event.getId(), event.getEventType(), event.getAggregateId());
             } catch (Exception ex) {
                 log.error("Failed to publish inventory outbox event {}: {}", event.getId(), ex.getMessage());
+                // Halt the batch on failure to preserve sequential ordering and avoid message skipping
+                break;
             }
         }
     }
 }
+

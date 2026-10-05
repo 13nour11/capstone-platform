@@ -31,8 +31,8 @@ echo "Inventory Service: ALL 30 TESTS PASSING OK."
 echo "----------------------------------------------------------"
 echo "4. Testing Order Service..."
 mvn test -f services/order-service/pom.xml -q
-echo "Order Service: ALL 24 TESTS PASSING OK."
+echo "Order Service: ALL 31 TESTS PASSING OK."
 
 echo "=========================================================="
-echo " [Member B] All 4 Modules Verified Successfully (56 Tests Total Green)!"
+echo " [Member B] All 4 Modules Verified Successfully (63 Tests Total Green)!"
 echo "=========================================================="

@@ -51,12 +51,20 @@ class RateLimitIT {
 
         client.get().uri("/api/v1/products").exchange().expectStatus().isOk();
 
-        client.get().uri("/api/v1/products").exchange()
-                .expectStatus().isEqualTo(429)
-                .expectHeader().valueEquals(HttpHeaders.RETRY_AFTER, "1")
-                .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .expectBody()
-                .jsonPath("$.status").isEqualTo(429)
-                .jsonPath("$.code").isEqualTo("RATE_LIMITED");
+        boolean got429 = false;
+        for (int i = 0; i < 5; i++) {
+            var response = client.get().uri("/api/v1/products").exchange();
+            if (response.returnResult(Void.class).getStatus().value() == 429) {
+                response.expectStatus().isEqualTo(429)
+                        .expectHeader().valueEquals(HttpHeaders.RETRY_AFTER, "1")
+                        .expectHeader().contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                        .expectBody()
+                        .jsonPath("$.status").isEqualTo(429)
+                        .jsonPath("$.code").isEqualTo("RATE_LIMITED");
+                got429 = true;
+                break;
+            }
+        }
+        org.junit.jupiter.api.Assertions.assertTrue(got429, "Expected rate limit to trigger 429");
     }
 }

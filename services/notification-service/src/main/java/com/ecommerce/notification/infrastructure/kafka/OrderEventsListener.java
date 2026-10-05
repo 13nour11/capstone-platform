@@ -58,8 +58,10 @@ public class OrderEventsListener {
             topicSuffixingStrategy = TopicSuffixingStrategy.SUFFIX_WITH_INDEX_VALUE,
             exclude = InvalidEventException.class)
     @KafkaListener(topics = TOPIC, groupId = "${spring.kafka.consumer.group-id:notification-service}")
-    public void onOrderEvent(String message) {
-        toNotification(message).ifPresent(notifications::notifyCustomer);
+    public void onOrderEvent(String message,
+                             @Header(name = "eventType", required = false) String eventTypeHeader,
+                             @Header(name = KafkaHeaders.RECEIVED_KEY, required = false) String key) {
+        toNotification(message, eventTypeHeader, key).ifPresent(notifications::notifyCustomer);
     }
 
     @DltHandler
@@ -72,33 +74,49 @@ public class OrderEventsListener {
     }
 
     Optional<OrderNotification> toNotification(String message) {
-        EventEnvelope event = parse(message);
-        Type type = NOTIFIED_EVENTS.get(event.eventType());
-        if (type == null) {
-            log.debug("Skipping eventType={} eventId={}", event.eventType(), event.eventId());
-            return Optional.empty();
-        }
-        JsonNode payload = event.payload();
-        String orderId = text(payload, "orderId").orElse(event.aggregateId());
-        String customerId = text(payload, "customerId")
-                .orElseThrow(() -> new InvalidEventException("customerId missing in event " + event.eventId()));
-        if (orderId == null) {
-            throw new InvalidEventException("orderId missing in event " + event.eventId());
-        }
-        return Optional.of(new OrderNotification(event.eventId(), type, orderId, customerId,
-                text(payload, "reason").orElse(null)));
+        return toNotification(message, null, null);
     }
 
-    private EventEnvelope parse(String message) {
+    Optional<OrderNotification> toNotification(String message, String eventTypeHeader, String key) {
+        JsonNode root;
         try {
-            EventEnvelope event = objectMapper.readValue(message, EventEnvelope.class);
-            if (event == null || event.eventId() == null || event.eventType() == null) {
-                throw new InvalidEventException("eventId and eventType are required");
+            root = objectMapper.readTree(message);
+            if (root == null || !root.isObject()) {
+                throw new InvalidEventException("Malformed event JSON: root must be object");
             }
-            return event;
         } catch (JsonProcessingException e) {
             throw new InvalidEventException("Malformed event JSON", e);
         }
+
+        String eventType = text(root, "eventType").orElse(eventTypeHeader);
+        if (eventType == null || eventType.isBlank()) {
+            throw new InvalidEventException("eventId and eventType are required");
+        }
+
+        Type type = NOTIFIED_EVENTS.get(eventType);
+        if (type == null) {
+            log.debug("Skipping eventType={}", eventType);
+            return Optional.empty();
+        }
+
+        String eventId = text(root, "eventId").orElse(key);
+        if (eventId == null || eventId.isBlank()) {
+            throw new InvalidEventException("eventId and eventType are required");
+        }
+
+        JsonNode payload = (root.has("payload") && root.get("payload").isObject()) ? root.get("payload") : root;
+        String orderId = text(payload, "orderId").orElse(text(root, "aggregateId").orElse(key));
+        if (orderId == null || orderId.isBlank()) {
+            throw new InvalidEventException("orderId missing in event " + eventId);
+        }
+
+        String customerId = text(payload, "customerId").orElse(text(root, "customerId").orElse(null));
+        if (customerId == null || customerId.isBlank()) {
+            throw new InvalidEventException("customerId missing in event " + eventId);
+        }
+
+        String reason = text(payload, "reason").orElse(text(root, "reason").orElse(null));
+        return Optional.of(new OrderNotification(eventId, type, orderId, customerId, reason));
     }
 
     private static Optional<String> text(JsonNode payload, String field) {
@@ -108,3 +126,4 @@ public class OrderEventsListener {
                 .map(JsonNode::asText);
     }
 }
+

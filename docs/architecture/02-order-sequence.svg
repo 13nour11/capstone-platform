@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="760" viewBox="0 0 900 760" font-family="Segoe UI, Arial, sans-serif">
+  <title>02 — Order Sequence: Happy Path and Compensation Failure Path</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#2C2C2A"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#0F6E56"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#A32D2D"/>
+    </marker>
+  </defs>
+
+  <rect width="900" height="760" fill="#FFFFFF"/>
+  <text x="40" y="30" font-size="18" font-weight="700" fill="#1C1C1A">Order Fulfillment Saga: Happy Path &amp; Compensation Rollback</text>
+  <text x="40" y="50" font-size="13" fill="#5F5E5A">Choreographed Saga with Transactional Outbox and Idempotent Consumers (Brief §10.3 — Owner: Member B)</text>
+
+  <!-- Lifeline Columns -->
+  <!-- Client: x=90 -->
+  <!-- OrderService: x=250 -->
+  <!-- InventoryService: x=430 -->
+  <!-- Kafka: x=610 -->
+  <!-- PaymentService: x=790 -->
+
+  <g font-size="13" font-weight="600" text-anchor="middle">
+    <!-- Headers -->
+    <rect x="30" y="70" width="120" height="40" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/>
+    <text x="90" y="95" fill="#2C2C2A">Client</text>
+
+    <rect x="180" y="70" width="140" height="40" rx="4" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="250" y="95" fill="#085041">order-service (B)</text>
+
+    <rect x="350" y="70" width="160" height="40" rx="4" fill="#E1F5EE" stroke="#0F6E56"/>
+    <text x="430" y="95" fill="#085041">inventory-service (B)</text>
+
+    <rect x="540" y="70" width="140" height="40" rx="4" fill="#EAE7FE" stroke="#534AB7"/>
+    <text x="610" y="95" fill="#312C77">Kafka Topics</text>
+
+    <rect x="710" y="70" width="160" height="40" rx="4" fill="#FAECE7" stroke="#993C1D"/>
+    <text x="790" y="95" fill="#712B13">payment-service (C)</text>
+  </g>
+
+  <!-- Vertical dashed lifelines -->
+  <line x1="90" y1="110" x2="90" y2="730" stroke="#CCCCCC" stroke-dasharray="4 4"/>
+  <line x1="250" y1="110" x2="250" y2="730" stroke="#CCCCCC" stroke-dasharray="4 4"/>
+  <line x1="430" y1="110" x2="430" y2="730" stroke="#CCCCCC" stroke-dasharray="4 4"/>
+  <line x1="610" y1="110" x2="610" y2="730" stroke="#CCCCCC" stroke-dasharray="4 4"/>
+  <line x1="790" y1="110" x2="790" y2="730" stroke="#CCCCCC" stroke-dasharray="4 4"/>
+
+  <!-- ==================== PHASE 1: HAPPY PATH ==================== -->
+  <rect x="40" y="125" width="820" height="300" rx="8" fill="#F4FAF7" stroke="#22A06B" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="55" y="145" font-size="13" font-weight="700" fill="#085041">1. HAPPY PATH (Successful Order &amp; Payment)</text>
+
+  <!-- Step 1: POST /orders -->
+  <line x1="90" y1="165" x2="248" y2="165" stroke="#2C2C2A" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="170" y="160" font-size="11" font-weight="600" fill="#2C2C2A" text-anchor="middle">POST /api/v1/orders</text>
+
+  <!-- Step 2: Feign sync check -->
+  <line x1="250" y1="190" x2="428" y2="190" stroke="#0F6E56" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <text x="340" y="185" font-size="11" fill="#085041" text-anchor="middle">GET /check (Feign + Resilience4j)</text>
+
+  <line x1="430" y1="210" x2="252" y2="210" stroke="#0F6E56" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow-green)"/>
+  <text x="340" y="205" font-size="11" fill="#085041" text-anchor="middle">200 OK (available: true)</text>
+
+  <!-- Step 3: Atomic Order & Outbox -->
+  <rect x="235" y="225" width="150" height="26" rx="4" fill="#FFFFFF" stroke="#0F6E56"/>
+  <text x="310" y="242" font-size="11" fill="#085041" text-anchor="middle">DB: Order PENDING + Outbox</text>
+
+  <!-- Return 201 Created to client -->
+  <line x1="250" y1="265" x2="92" y2="265" stroke="#2C2C2A" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+  <text x="170" y="260" font-size="11" font-weight="600" fill="#2C2C2A" text-anchor="middle">201 Created (orderId, PENDING)</text>
+
+  <!-- Outbox publisher sends OrderPlaced -->
+  <line x1="250" y1="290" x2="608" y2="290" stroke="#534AB7" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="430" y="285" font-size="11" font-weight="600" fill="#312C77" text-anchor="middle">order-events: OrderPlaced</text>
+
+  <!-- Inventory consumes OrderPlaced & publishes InventoryReserved -->
+  <line x1="610" y1="315" x2="432" y2="315" stroke="#534AB7" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="520" y="310" font-size="11" fill="#312C77" text-anchor="middle">Consume OrderPlaced</text>
+
+  <line x1="430" y1="340" x2="608" y2="340" stroke="#534AB7" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="520" y="335" font-size="11" font-weight="600" fill="#312C77" text-anchor="middle">inventory-events: InventoryReserved</text>
+
+  <!-- Payment consumes InventoryReserved -->
+  <line x1="610" y1="365" x2="788" y2="365" stroke="#993C1D" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="700" y="360" font-size="11" fill="#712B13" text-anchor="middle">Consume InventoryReserved</text>
+
+  <line x1="790" y1="390" x2="612" y2="390" stroke="#534AB7" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="700" y="385" font-size="11" font-weight="600" fill="#312C77" text-anchor="middle">payment-events: PaymentCompleted</text>
+
+  <!-- Order confirms -->
+  <line x1="610" y1="410" x2="252" y2="410" stroke="#0F6E56" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <text x="430" y="405" font-size="11" font-weight="600" fill="#085041" text-anchor="middle">Order state $\to$ CONFIRMED</text>
+
+  <!-- ==================== PHASE 2: COMPENSATION PATH ==================== -->
+  <rect x="40" y="445" width="820" height="270" rx="8" fill="#FDF6F5" stroke="#C93B2B" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="55" y="465" font-size="13" font-weight="700" fill="#A32D2D">2. COMPENSATION FAILURE PATH (Payment Declined Rollback)</text>
+
+  <!-- Payment emits PaymentFailed -->
+  <line x1="790" y1="495" x2="612" y2="495" stroke="#A32D2D" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+  <text x="700" y="490" font-size="11" font-weight="600" fill="#A32D2D" text-anchor="middle">payment-events: PaymentFailed</text>
+
+  <!-- Order consumes PaymentFailed and cancels -->
+  <line x1="610" y1="530" x2="252" y2="530" stroke="#A32D2D" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+  <text x="430" y="525" font-size="11" fill="#A32D2D" text-anchor="middle">Consume PaymentFailed</text>
+
+  <rect x="230" y="545" width="160" height="26" rx="4" fill="#FFFFFF" stroke="#A32D2D"/>
+  <text x="310" y="562" font-size="11" font-weight="600" fill="#A32D2D" text-anchor="middle">Order state $\to$ CANCELLED</text>
+
+  <!-- Order emits OrderCancelled -->
+  <line x1="250" y1="590" x2="608" y2="590" stroke="#A32D2D" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+  <text x="430" y="585" font-size="11" font-weight="600" fill="#A32D2D" text-anchor="middle">order-events: OrderCancelled (customerId included)</text>
+
+  <!-- Inventory consumes OrderCancelled & compensates -->
+  <line x1="610" y1="620" x2="432" y2="620" stroke="#A32D2D" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+  <text x="520" y="615" font-size="11" fill="#A32D2D" text-anchor="middle">Consume OrderCancelled / PaymentFailed</text>
+
+  <rect x="410" y="635" width="200" height="26" rx="4" fill="#FFFFFF" stroke="#0F6E56"/>
+  <text x="510" y="652" font-size="11" font-weight="600" fill="#085041" text-anchor="middle">Compensate: Release Reservation &amp; Stock</text>
+
+  <!-- Final state -->
+  <text x="450" y="700" font-size="12" font-weight="600" fill="#2C2C2A" text-anchor="middle">
+    Result: Order is CANCELLED · Stock is restored to Available · No orphaned holds remain
+  </text>
+</svg>

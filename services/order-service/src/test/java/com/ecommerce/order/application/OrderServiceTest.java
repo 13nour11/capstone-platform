@@ -59,17 +59,24 @@ class OrderServiceTest {
     void setUp() {
         objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
         objectMapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        OrderPersistenceService persistenceService = new OrderPersistenceService(
+                orderRepository,
+                outboxEventRepository,
+                objectMapper
+        );
         orderService = new OrderServiceImpl(
                 orderRepository,
                 outboxEventRepository,
                 processedEventRepository,
                 inventoryServiceClient,
-                objectMapper
+                objectMapper,
+                persistenceService
         );
         createOrderRequest = new CreateOrderRequest(List.of(
                 new OrderItemRequest(1L, 2, new BigDecimal("49.99"))
         ));
     }
+
 
     @Test
     @DisplayName("Should create order with PENDING status when stock is available")
