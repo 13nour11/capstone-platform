@@ -9,7 +9,7 @@ public interface OrderService {
 
     OrderResponse createOrder(String customerId, CreateOrderRequest request);
 
-    OrderResponse getOrderById(String orderId);
+    OrderResponse getOrderById(String customerId, String orderId);
 
     List<OrderResponse> getOrdersByCustomerId(String customerId);
 

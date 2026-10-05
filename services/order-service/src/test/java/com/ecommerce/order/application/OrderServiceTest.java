@@ -9,6 +9,7 @@ import com.ecommerce.order.domain.exception.OrderNotFoundException;
 import com.ecommerce.order.domain.exception.OutOfStockException;
 import com.ecommerce.order.domain.exception.ServiceUnavailableException;
 import com.ecommerce.order.infrastructure.client.InventoryServiceClient;
+import com.ecommerce.order.infrastructure.outbox.OutboxTraceContext;
 import com.ecommerce.order.infrastructure.persistence.OrderRepository;
 import com.ecommerce.order.infrastructure.persistence.OutboxEventRepository;
 import com.ecommerce.order.infrastructure.persistence.ProcessedEventRepository;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -49,6 +51,9 @@ class OrderServiceTest {
     @Mock
     private InventoryServiceClient inventoryServiceClient;
 
+    @Mock
+    private OutboxTraceContext traceContext;
+
     private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     private OrderServiceImpl orderService;
@@ -64,7 +69,9 @@ class OrderServiceTest {
                 outboxEventRepository,
                 processedEventRepository,
                 inventoryServiceClient,
-                objectMapper
+                objectMapper,
+                TransactionOperations.withoutTransaction(),
+                traceContext
         );
         createOrderRequest = new CreateOrderRequest(List.of(
                 new OrderItemRequest(1L, 2, new BigDecimal("49.99"))
@@ -126,7 +133,7 @@ class OrderServiceTest {
                 .build();
         when(orderRepository.findById("ord-123")).thenReturn(Optional.of(order));
 
-        OrderResponse response = orderService.getOrderById("ord-123");
+        OrderResponse response = orderService.getOrderById("cust-1", "ord-123");
 
         assertThat(response.orderId()).isEqualTo("ord-123");
         assertThat(response.status()).isEqualTo(OrderStatus.PENDING);
@@ -137,8 +144,41 @@ class OrderServiceTest {
     void shouldThrowException_whenOrderNotFound() {
         when(orderRepository.findById("ord-999")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> orderService.getOrderById("ord-999"))
+        assertThatThrownBy(() -> orderService.getOrderById("cust-1", "ord-999"))
                 .isInstanceOf(OrderNotFoundException.class)
                 .hasMessageContaining("ord-999");
+    }
+
+    @Test
+    @DisplayName("FR-10: another customer's order is reported as not found")
+    void shouldThrowNotFound_whenOrderBelongsToAnotherCustomer() {
+        Order order = Order.builder()
+                .id("ord-123")
+                .customerId("cust-1")
+                .totalAmount(new BigDecimal("99.98"))
+                .status(OrderStatus.PENDING)
+                .createdAt(Instant.now())
+                .build();
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(order));
+
+        assertThatThrownBy(() -> orderService.getOrderById("cust-2", "ord-123"))
+                .isInstanceOf(OrderNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("FR-05: the order and its OrderPlaced outbox row are written with the same event id")
+    void shouldWriteOrderPlacedToOutbox_whenOrderIsCreated() {
+        doNothing().when(inventoryServiceClient).verifyStockAvailability(1L, 2);
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(traceContext.currentTraceparent()).thenReturn("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
+
+        orderService.createOrder("cust-1", createOrderRequest);
+
+        org.mockito.ArgumentCaptor<com.ecommerce.order.domain.OutboxEvent> outbox =
+                org.mockito.ArgumentCaptor.forClass(com.ecommerce.order.domain.OutboxEvent.class);
+        verify(outboxEventRepository).save(outbox.capture());
+        assertThat(outbox.getValue().getEventType()).isEqualTo("OrderPlaced");
+        assertThat(outbox.getValue().getPayload()).contains("\"eventId\":\"" + outbox.getValue().getId() + "\"");
+        assertThat(outbox.getValue().getTraceparent()).startsWith("00-4bf92f3577b34da6");
     }
 }

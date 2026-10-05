@@ -31,7 +31,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @TestPropertySource(properties = {
         "spring.flyway.enabled=false",
         "spring.jpa.hibernate.ddl-auto=create-drop",
-        "inventory.service.url=http://localhost:${wiremock.server.port}"
+        "inventory.service.url=http://localhost:${wiremock.server.port}",
+        // Same guards as config-repo/order-service.yml: the call is cut off after 2 s
+        "resilience4j.timelimiter.instances.inventoryService.timeoutDuration=2s",
+        "resilience4j.bulkhead.instances.inventoryService.maxConcurrentCalls=20"
 })
 class OrderSyncIntegrationTest {
 
@@ -108,6 +111,28 @@ class OrderSyncIntegrationTest {
 
         mockMvc.perform(post("/api/v1/orders")
                         .header("X-User-Id", "customer-integration")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("STOCK_CHECK_UNAVAILABLE"));
+    }
+
+    @Test
+    @DisplayName("Failure scenario 2: a slow inventory is cut off by the TimeLimiter and answered with 503, nothing saved")
+    void shouldReturn503_whenInventoryIsTooSlow() throws Exception {
+        stubFor(get(urlPathEqualTo("/api/v1/inventory/check"))
+                .withQueryParam("productId", equalTo("4"))
+                .willReturn(aResponse()
+                        .withFixedDelay(3_000)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"productId\": 4, \"requestedQuantity\": 1, \"available\": true}")));
+
+        CreateOrderRequest request = new CreateOrderRequest(List.of(
+                new OrderItemRequest(4L, 1, new BigDecimal("10.00"))
+        ));
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .header("X-User-Id", "customer-slow")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isServiceUnavailable())

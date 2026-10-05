@@ -6,9 +6,10 @@ server:
 
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/order_db}
-    username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    # Containers and pods override these with SPRING_DATASOURCE_* (one login per service database, NFR-04)
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/order_db
+    username: order_user
+    password: ${ORDER_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
@@ -22,7 +23,6 @@ spring:
     baseline-on-migrate: true
     locations: classpath:db/migration
   kafka:
-    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -32,6 +32,13 @@ spring:
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+  cloud:
+    openfeign:
+      client:
+        config:
+          inventory-service:
+            connect-timeout: 1000
+            read-timeout: 2000
 
 order:
   outbox:
@@ -41,21 +48,13 @@ order:
       order-events: order-events
       inventory-events: inventory-events
       payment-events: payment-events
+  # FR-14: the stock check authenticates with order-service's own client-credentials token
+  service-auth:
+    token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/token}
+    client-id: order-service
+    client-secret: ${ORDER_SERVICE_CLIENT_SECRET}
 
-eureka:
-  client:
-    service-url:
-      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8761/eureka/}
-    register-with-eureka: true
-    fetch-registry: true
-  instance:
-    prefer-ip-address: true
-
-# OpenFeign & Resilience4j configuration
-inventory:
-  service:
-    url: ${INVENTORY_SERVICE_URL:http://localhost:8084}
-
+# Resilience4j on Order -> Inventory: Retry(CircuitBreaker(TimeLimiter(Bulkhead(call))))
 resilience4j:
   circuitbreaker:
     instances:
@@ -75,6 +74,11 @@ resilience4j:
     instances:
       inventoryService:
         timeoutDuration: 2s
+  bulkhead:
+    instances:
+      inventoryService:
+        maxConcurrentCalls: 20
+        maxWaitDuration: 100ms
 
 management:
   endpoints:
@@ -84,12 +88,6 @@ management:
   endpoint:
     health:
       show-details: always
-  tracing:
-    sampling:
-      probability: 1.0
-  zipkin:
-    tracing:
-      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
 
 ---
 # --- analytics (C) ---
