@@ -13,6 +13,7 @@ and are notified; admins manage the catalogue and stock.
 | `services/payment-service` | 8083 | C |
 | `services/inventory-service` | 8084 | B |
 | `services/notification-service` | 8085 | A |
+| `services/review-service` (Bonus B1) | 8086 | Team |
 
 Infrastructure (`deployment/docker/docker-compose.yml`): PostgreSQL 5432 · Kafka 9092 (+ Zookeeper 2181) ·
 Redis 6379 · Keycloak 8180 · Zipkin 9411 · Prometheus 9090 · Grafana 3000.
@@ -73,8 +74,9 @@ mvn test -f services/order-service/pom.xml
 
 **Model.** Keycloak realm `ecommerce-platform` issues JWTs (roles `ADMIN`, `CUSTOMER`, `SERVICE`). The gateway is
 an OAuth2 Resource Server: it validates every token, applies the role rule per path, removes any client-sent
-`X-User-*` header and adds `X-User-Id` / `X-User-Roles` from the token. Services validate the JWT again
-(defence in depth). Errors follow one RFC 7807 shape with a stable `code`
+`X-User-*` header and adds `X-User-Id` / `X-User-Roles` (and `X-Tenant-Id`, Bonus B3) from the token.
+product, inventory, payment and review-service validate the JWT again; order-service takes the customer from
+`X-User-Id` (ADD D7.1). Errors follow one RFC 7807 shape with a stable `code`
 (`UNAUTHORIZED`, `FORBIDDEN`, `RATE_LIMITED`, `VALIDATION_ERROR`, `PRODUCT_NOT_FOUND`, …).
 
 | Path | Rule |
@@ -83,10 +85,12 @@ an OAuth2 Resource Server: it validates every token, applies the role rule per p
 | `POST/PUT/DELETE /api/v1/products/**` | `ADMIN` |
 | `/api/v1/orders/**` | `CUSTOMER` |
 | `/api/v1/inventory/check` | never routed (internal, order-service → inventory-service only) |
-| `/api/v1/inventory/**`, `/api/v1/payments/**`, `/api/v1/analytics/**` | `ADMIN` |
+| `/api/v1/inventory/**`, `/api/v1/payments/**`, `/api/v1/analytics/**`, `/api/v1/alerts/**` | `ADMIN` |
+| `GET /api/v1/products/{id}/reviews` · `POST` (B1) | public · `CUSTOMER` |
 | anything else | denied |
 
-Test users `admin`, `customer1`, `customer2` share the password `KC_TEST_USER_PASSWORD` from `.env`.
+Test users `admin`, `customer1` (tenant `tenant-a`) and `admin-b`, `customer2` (tenant `tenant-b`) share the password
+`KC_TEST_USER_PASSWORD` from `.env`.
 The confidential client `order-service` (service role `SERVICE`) uses the client-credentials grant (FR-14).
 
 The commands below use bash (Git Bash on Windows) from the repo root, with gateway, product-service and config-server running.
@@ -109,11 +113,12 @@ curl -i -X POST http://localhost:8080/api/v1/products -H 'Content-Type: applicat
 curl -i -X POST http://localhost:8080/api/v1/products -H "Authorization: Bearer $CUSTOMER" \
      -H 'Content-Type: application/json' -d '{"name":"Desk Mat","price":19.90,"categoryId":3}'
 # FR-02 ADMIN create -> 201 + Location; update -> 200; delete -> 204 (each write evicts the cache, FR-15)
-curl -i -X POST http://localhost:8080/api/v1/products -H "Authorization: Bearer $ADMIN" \
-     -H 'Content-Type: application/json' -d '{"name":"Desk Mat","price":19.90,"categoryId":3}'
-curl -i -X PUT http://localhost:8080/api/v1/products/11 -H "Authorization: Bearer $ADMIN" \
+ID=$(curl -s -X POST http://localhost:8080/api/v1/products -H "Authorization: Bearer $ADMIN" \
+     -H 'Content-Type: application/json' -d '{"name":"Desk Mat","price":19.90,"categoryId":3}' \
+     | sed -E 's/.*"id":([0-9]+).*/\1/')
+curl -i -X PUT http://localhost:8080/api/v1/products/$ID -H "Authorization: Bearer $ADMIN" \
      -H 'Content-Type: application/json' -d '{"name":"Desk Mat XL","price":24.90,"categoryId":3}'
-curl -i -X DELETE http://localhost:8080/api/v1/products/11 -H "Authorization: Bearer $ADMIN"
+curl -i -X DELETE http://localhost:8080/api/v1/products/$ID -H "Authorization: Bearer $ADMIN"
 # Validation -> 400 {"code":"VALIDATION_ERROR","errors":[...]}
 curl -i "http://localhost:8080/api/v1/products?size=51"
 # Internal stock check is not exposed -> 403
@@ -176,24 +181,41 @@ The platform uses an asynchronous choreography-based Saga to coordinate transact
    - Zero `kafkaTemplate.send()` calls inside database `@Transactional` blocks.
    - Business entities and `outbox_event` records are committed in the **same local database transaction**.
    - An asynchronous `@Scheduled` poller queries pending outbox events using `SELECT ... FOR UPDATE SKIP LOCKED` and publishes records to Kafka with `key = orderId`.
-   - On successful publish, the event status is marked as `SENT`.
+   - The event is marked `SENT` only after the broker acknowledged it; on a failure the batch stops and is retried on the next poll (at-least-once).
 
 2. **Distributed Tracing Continuity (NFR-06)**:
    - The active W3C `traceparent` header is captured and persisted in the `outbox_event.traceparent` column.
-   - When the outbox publisher dispatches the Kafka `ProducerRecord`, the `traceparent` is injected as a Kafka record header, ensuring zero trace context loss between asynchronous threads and services.
+   - The publisher continues that trace when it sends the row; the KafkaTemplate observation then writes the `traceparent` header, so one traceId spans the HTTP request and every Kafka hop.
 
 3. **Idempotent Consumer Processing (NFR-10)**:
    - Each consumer service maintains a `processed_event(event_id, consumer)` table.
    - Every incoming event checks for duplicate processing within the consumer transaction. Duplicate events are silently discarded, guaranteeing exactly-once semantics at the business layer.
 
-4. **NFR-05 Reservation Timeout Sweeper**:
-   - `inventory-service` executes a scheduled sweeper (`ReservationSweeper`) every 10 seconds.
-   - Any reservation in `RESERVED` status older than 30 seconds (`inventory.reservation.ttl-seconds: 30`) is automatically released and refunded to available stock, preventing stock leakage from abandoned or unconfirmed orders.
+4. **NFR-05 Reservation Sweeper**:
+   - `inventory-service` releases a cancelled order's stock as soon as `PaymentFailed` or `OrderCancelled` arrives, records the order in `cancelled_order`, and publishes `InventoryReleased`.
+   - A scheduled sweeper (`ReservationSweeper`, every 10 seconds) releases any reservation still `RESERVED` for a cancelled order; a late `OrderPlaced` for a cancelled order reserves nothing.
+   - Reservations of orders that are only waiting (for example while payment-service is down, NFR-01) are never released, so a slow payment cannot lose stock.
+   - One reservation row per order line, so multi-product orders release and consume every product.
 
 5. **Failure Compensation Paths**:
    - **Out of Stock**: Synchronous check returns `409 Conflict` (`OUT_OF_STOCK`); order is never saved.
    - **Payment Failure**: `payment-service` emits `PaymentFailed`. `order-service` cancels order (`CANCELLED`); `inventory-service` compensates by releasing the reserved stock.
    - **Inventory Reservation Failure**: If concurrent orders deplete stock before async reservation, `inventory-service` emits `InventoryReservationFailed`. `order-service` marks the order `CANCELLED`.
+
+6. **Resilience of the stock check (FR-06)**: Feign through Eureka, wrapped in Retry, CircuitBreaker, TimeLimiter (2 s) and Bulkhead; a failed check answers `503 STOCK_CHECK_UNAVAILABLE` and nothing is saved. The call carries order-service's own client-credentials token (FR-14).
+
+```bash
+# Happy path: 201 PENDING, then CONFIRMED a moment later (FR-05, FR-09); the order API takes the catalogue price
+ORDER=$(curl -s -X POST http://localhost:8080/api/v1/orders -H "Authorization: Bearer $CUSTOMER" \
+     -H 'Content-Type: application/json' -d '{"items":[{"productId":1,"quantity":1,"unitPrice":24.99}]}')
+echo "$ORDER"; OID=$(echo "$ORDER" | sed -E 's/.*"orderId":"([^"]+)".*/\1/')
+sleep 3; curl -s http://localhost:8080/api/v1/orders/$OID -H "Authorization: Bearer $CUSTOMER"
+# Out of stock (product 4 has 0 units) -> 409 OUT_OF_STOCK, no order, no payment (FR-06)
+curl -i -X POST http://localhost:8080/api/v1/orders -H "Authorization: Bearer $CUSTOMER" \
+     -H 'Content-Type: application/json' -d '{"items":[{"productId":4,"quantity":1,"unitPrice":279.00}]}'
+# Compensation: set PAYMENT_FAILURE_RATE=1.0 in .env, recreate payment-service, order again -> CANCELLED, stock restored
+# NFR-05 evidence (must print 0 rows): see docs/adr/ADD-TEAM.md §4
+```
 
 ## Payment
 
@@ -213,7 +235,7 @@ payment-service (port 8083) charges each order **exactly once** and reports the 
 
 The outbox poller publishes that row to `payment-events` with headers `eventType`, `eventId` and `traceparent`. A record that cannot be read goes to `inventory-events.DLT`.
 
-**Failure switch.** `payment.simulation.failure-rate` in `config-repo/payment-service.yml` (`PAYMENT_FAILURE_RATE` in `deployment/docker/.env`):
+**Failure switch.** `payment.simulation.failure-rate` in `config-repo/payment-service.yml` (`PAYMENT_FAILURE_RATE` in the repo-root `.env`):
 - `0.0`: every payment succeeds.
 - `1.0`: every payment fails, which drives the compensation path.
 
@@ -234,7 +256,7 @@ mvn verify                                     # unit + Testcontainers + embedde
 mvn spring-boot:run -Dspring-boot.run.arguments=--spring.config.additional-location=file:../../config-repo/payment-service.yml
 ```
 
-`spring-boot:run` reads the password from the `SPRING_DATASOURCE_PASSWORD` environment variable. The `additional-location` argument is only needed while config-server is not running.
+`spring-boot:run` reads `PAYMENT_DB_PASSWORD` from the repo-root `.env`. The `additional-location` argument is only needed while config-server is not running.
 
 ## Kubernetes
 
@@ -245,9 +267,11 @@ The kind cluster and infrastructure manifests live in `deployment/kubernetes/`. 
 ```bash
 kind create cluster --config deployment/kubernetes/kind-config.yaml
 kubectl apply -f deployment/kubernetes/infra/namespace.yaml
-scripts/create-k8s-secrets.sh                 # Secrets from deployment/docker/.env (never committed)
+scripts/create-k8s-secrets.sh                 # Secrets + postgres-init + dashboards from the repo-root .env (never committed)
 kubectl apply -f deployment/kubernetes/infra/
 kubectl -n ecommerce get pods -w
+# Services: through ArgoCD (Helm & GitOps below) or one Helm release each, e.g.
+helm upgrade --install product-service deployment/helm/microservice -f deployment/helm/values/product-service.yaml -n ecommerce
 ```
 
 | UI | URL (kind) |
@@ -268,7 +292,8 @@ startup/liveness/readiness probes on `/actuator/health/*`, its own ServiceAccoun
 its secrets from `<service>-secrets` (never in Git). Details: [deployment/helm/README.md](deployment/helm/README.md).
 
 ArgoCD deploys `infra` (raw manifests) and one Application per service (ApplicationSet), automated with
-`prune` + `selfHeal`, tracking the `env/dev` branch that CI updates. Install and the drift demo:
+`prune` + `selfHeal`, tracking the `env/dev` branch: on every push to `main`, CI merges `main` into `env/dev` and
+commits the new `:sha` image tags there. Install and the drift demo:
 [deployment/argocd/README.md](deployment/argocd/README.md).
 
 ## Observability
@@ -276,6 +301,10 @@ ArgoCD deploys `infra` (raw manifests) and one Application per service (Applicat
 <!-- Owner: B -->
 
 Distributed tracing is configured across all services via Micrometer Tracing with Brave and Zipkin exporter (`http://localhost:9411/api/v2/spans`). All Kafka events propagate W3C `traceparent` headers to correlate spans across HTTP requests and Kafka message processing.
+
+- **Logs:** JSON (Elastic Common Schema) on the console, with `traceId` and `spanId` on every line (`logging.structured.format.console: ecs`).
+- **Trace of one order:** place an order, then open Zipkin (http://localhost:9411) and search by `serviceName=api-gateway`; the trace spans gateway → order → inventory → payment → order → notification.
+- **Metrics:** Prometheus (http://localhost:9090) scrapes every service; Grafana (http://localhost:3000) provisions *Platform Overview* and *Order Analytics*.
 
 ## Load tests
 
@@ -295,7 +324,8 @@ Distributed tracing is configured across all services via Micrometer Tracing wit
 k6 run -e K6_PASSWORD="$KC_TEST_USER_PASSWORD" k6/smoke-test.js
 k6 run -e K6_PASSWORD="$KC_TEST_USER_PASSWORD" --summary-export k6/results/load.json k6/load-test.js
 k6 run -e K6_PASSWORD="$KC_TEST_USER_PASSWORD" --summary-export k6/results/stress.json k6/stress-test.js
-# Before the Saga exists (L1/L2), add -e SKIP_ORDERS=true to measure the catalogue only.
+# Ordering runs log in as admin once in setup() to read prices and top up the stock of products 1-3
+# (K6_ADMIN_PASSWORD, default K6_PASSWORD). Add -e SKIP_ORDERS=true to measure the catalogue only.
 # Stream results to Prometheus/Grafana: K6_PROMETHEUS_RW_SERVER_URL=http://localhost:9090/api/v1/write k6 run -o experimental-prometheus-rw ...
 ```
 
@@ -314,4 +344,50 @@ An ADMIN view of order volume, revenue and Saga failures, built from `order-even
 
 ```bash
 curl -H "Authorization: Bearer $ADMIN_TOKEN" "http://localhost:8080/api/v1/analytics/summary?hours=24"
+```
+
+## Bonus B1 — Product Reviews & Ratings
+
+<!-- Owner: Team -->
+
+review-service (8086, own `review_db`) stores one review per customer and product; product-service shows the average
+and count, updated through `ReviewSubmitted` events (outbox → `review-events`). Duplicates cannot skew the average:
+the rating table is keyed by review id.
+
+```bash
+curl -i -X POST http://localhost:8080/api/v1/products/1/reviews -H "Authorization: Bearer $CUSTOMER" \
+     -H 'Content-Type: application/json' -d '{"rating":5,"comment":"Great mouse"}'      # 201; a second one -> 409
+curl -s "http://localhost:8080/api/v1/products/1/reviews?page=0&size=10"                 # public, paginated
+sleep 2; curl -s http://localhost:8080/api/v1/products/1                                  # averageRating, ratingCount
+```
+
+## Bonus B3 — Multi-Tenant Gateway
+
+<!-- Owner: Team -->
+
+Two shops share the platform. The gateway takes the tenant from the token claim `tenant_id` (Keycloak user
+attribute) and forwards it as `X-Tenant-Id`; anonymous catalogue reads may pick `tenant-a` (default) or `tenant-b`
+with that header. product-service filters every query and cache key by tenant, and rate-limit buckets are per tenant.
+
+```bash
+ADMIN_B=$(token admin-b)
+curl -s http://localhost:8080/api/v1/products -H 'X-Tenant-Id: tenant-b'                 # tenant B's catalogue
+curl -i -X DELETE http://localhost:8080/api/v1/products/1 -H "Authorization: Bearer $ADMIN_B"   # 404: tenant A's product
+curl -i http://localhost:8080/api/v1/products -H "Authorization: Bearer $ADMIN_B" -H 'X-Tenant-Id: tenant-a'  # 403 TENANT_MISMATCH
+```
+
+## Bonus B4 — Real-Time Inventory Alerts
+
+<!-- Owner: Team -->
+
+When a product's available stock drops below `inventory.low-stock.threshold` (default 5), inventory-service
+publishes one `LowStock` event (deduplicated per product until the stock recovers); notification-service pushes it
+to every connected admin over Server-Sent Events, through the gateway.
+
+```bash
+curl -N http://localhost:8080/api/v1/alerts/stream -H "Authorization: Bearer $ADMIN"     # keep open: the admin client
+# in a second terminal: drop product 2 below the threshold -> a "low-stock" event appears in the stream
+curl -s -X PUT http://localhost:8080/api/v1/inventory/2 -H "Authorization: Bearer $ADMIN" \
+     -H 'Content-Type: application/json' -d '{"availableQuantity":3}'
+curl -s http://localhost:8080/api/v1/inventory/low-stock -H "Authorization: Bearer $ADMIN"
 ```
