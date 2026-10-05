@@ -6,7 +6,7 @@
   <style>
     @page {
       size: A4;
-      margin: 15mm 15mm 15mm 15mm;
+      margin: 14mm 14mm 14mm 14mm;
       @bottom-right {
         content: counter(page);
       }
@@ -22,8 +22,8 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       color: #1e293b;
       background-color: #ffffff;
-      line-height: 1.5;
-      font-size: 10pt;
+      line-height: 1.45;
+      font-size: 9.2pt;
     }
 
     .page {
@@ -39,9 +39,9 @@
     /* Header & Cover */
     .cover {
       text-align: center;
-      padding: 40px 10px 30px 10px;
+      padding: 35px 10px 25px 10px;
       border-bottom: 2px solid #0f172a;
-      margin-bottom: 25px;
+      margin-bottom: 20px;
     }
 
     .doc-badge {
@@ -54,23 +54,23 @@
       border-radius: 4px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       border: 1px solid #bae6fd;
     }
 
     h1.doc-title {
-      font-size: 22pt;
+      font-size: 21pt;
       font-weight: 800;
       color: #0f172a;
       line-height: 1.2;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
 
     p.doc-subtitle {
-      font-size: 11pt;
+      font-size: 10.5pt;
       color: #475569;
       max-width: 800px;
-      margin: 0 auto 18px auto;
+      margin: 0 auto 16px auto;
     }
 
     .meta-grid {
@@ -80,9 +80,9 @@
       background: #f8fafc;
       border: 1px solid #e2e8f0;
       border-radius: 6px;
-      padding: 12px;
+      padding: 10px 12px;
       text-align: left;
-      font-size: 8.5pt;
+      font-size: 8.2pt;
     }
 
     .meta-item strong {
@@ -93,12 +93,12 @@
 
     /* Section Headings */
     h2.section-title {
-      font-size: 14pt;
+      font-size: 13.5pt;
       font-weight: 700;
       color: #0f172a;
       border-bottom: 1.5px solid #cbd5e1;
-      padding-bottom: 5px;
-      margin-top: 22px;
+      padding-bottom: 4px;
+      margin-top: 20px;
       margin-bottom: 12px;
       display: flex;
       align-items: center;
@@ -106,15 +106,15 @@
     }
 
     h3.sub-title {
-      font-size: 11pt;
+      font-size: 10.5pt;
       font-weight: 700;
       color: #1e3a8a;
-      margin-top: 14px;
+      margin-top: 12px;
       margin-bottom: 6px;
     }
 
     p {
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       color: #334155;
     }
 
@@ -122,13 +122,13 @@
     table {
       width: 100%;
       border-collapse: collapse;
-      margin: 10px 0 16px 0;
-      font-size: 8.5pt;
+      margin: 8px 0 14px 0;
+      font-size: 8.2pt;
     }
 
     th, td {
       border: 1px solid #cbd5e1;
-      padding: 6px 9px;
+      padding: 5px 8px;
       text-align: left;
       vertical-align: top;
     }
@@ -143,14 +143,14 @@
       background-color: #f8fafc;
     }
 
-    /* Callout & Cards */
+    /* Callouts */
     .callout {
       border-left: 3.5px solid #2563eb;
       background-color: #f0f7ff;
-      padding: 10px 12px;
+      padding: 8px 12px;
       border-radius: 0 4px 4px 0;
-      margin-bottom: 12px;
-      font-size: 8.8pt;
+      margin-bottom: 10px;
+      font-size: 8.5pt;
     }
 
     .callout-success {
@@ -163,38 +163,12 @@
       background-color: #fffbeb;
     }
 
-    /* Code & Terminals */
-    pre, code {
-      font-family: "Consolas", "Courier New", monospace;
-      font-size: 8pt;
-    }
-
-    code {
-      background: #f1f5f9;
-      color: #0f172a;
-      padding: 1px 4px;
-      border-radius: 3px;
-      border: 1px solid #e2e8f0;
-    }
-
-    pre {
-      background-color: #f8fafc;
-      border: 1px solid #cbd5e1;
-      border-radius: 4px;
-      padding: 8px 10px;
-      overflow-x: auto;
-      margin: 6px 0 10px 0;
-      line-height: 1.4;
-      color: #0f172a;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-
+    /* Requirement Cards */
     .req-card {
       border: 1px solid #cbd5e1;
       border-radius: 6px;
-      padding: 12px;
-      margin-bottom: 14px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
       background: #ffffff;
       page-break-inside: avoid;
     }
@@ -203,22 +177,22 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 8px;
-      border-bottom: 1px dashed #e2e8f0;
-      padding-bottom: 6px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 4px;
     }
 
     .req-id {
       font-weight: 800;
-      font-size: 10.5pt;
+      font-size: 10pt;
       color: #0f172a;
     }
 
     .badge {
       display: inline-block;
-      font-size: 7.5pt;
+      font-size: 7.2pt;
       font-weight: 700;
-      padding: 2px 7px;
+      padding: 2px 6px;
       border-radius: 3px;
       text-transform: uppercase;
     }
@@ -226,16 +200,64 @@
     .badge-should { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
     .badge-could { background: #e0f2fe; color: #075985; border: 1px solid #bae6fd; }
 
+    /* Standard 4-Part Structure */
+    .part-title {
+      font-size: 8.3pt;
+      font-weight: 700;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin-top: 6px;
+      margin-bottom: 2px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .part-title::before {
+      content: "";
+      display: inline-block;
+      width: 4px;
+      height: 4px;
+      background-color: #2563eb;
+      border-radius: 50%;
+    }
+
     .file-tag {
       font-family: "Consolas", monospace;
-      font-size: 7.8pt;
+      font-size: 7.6pt;
       color: #1e40af;
       background: #eff6ff;
       border: 1px solid #bfdbfe;
-      padding: 2px 6px;
+      padding: 1px 5px;
       border-radius: 3px;
       display: inline-block;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
+    }
+
+    pre, code {
+      font-family: "Consolas", "Courier New", monospace;
+      font-size: 7.8pt;
+    }
+
+    code {
+      background: #f1f5f9;
+      color: #0f172a;
+      padding: 1px 3px;
+      border-radius: 2px;
+      border: 1px solid #e2e8f0;
+    }
+
+    pre {
+      background-color: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 6px 8px;
+      overflow-x: auto;
+      margin: 3px 0 6px 0;
+      line-height: 1.35;
+      color: #0f172a;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
   </style>
 </head>
@@ -249,7 +271,7 @@
       <div class="doc-badge">Spring Boot & Spring Cloud Professional Edition · Capstone Phase 4</div>
       <h1 class="doc-title">Enterprise E-Commerce Microservices Platform</h1>
       <p class="doc-subtitle">
-        Architectural Blueprint, Functional Requirements Test Specification & Presentation Defense Guide
+        Architectural Blueprint, Standardized Functional Requirements Specification & Presentation Defense Guide
       </p>
 
       <div class="meta-grid">
@@ -273,12 +295,12 @@
     </div>
 
     <div class="callout callout-success">
-      <strong>Final Verification Result:</strong> Full Maven reactor build passed successfully with <strong>0 failures</strong> and <strong>0 errors</strong> across all 9 modules (`config-server`, `eureka-server`, `api-gateway`, `product-service`, `inventory-service`, `order-service`, `payment-service`, `notification-service`, and parent). All 8 infrastructure containers (`postgres`, `zookeeper`, `kafka`, `redis`, `keycloak`, `zipkin`, `prometheus`, `grafana`) are verified and running.
+      <strong>Final Verification Result:</strong> Full Maven multi-module reactor build passed successfully with <strong>0 failures</strong> and <strong>0 errors</strong> across all 9 modules (`config-server`, `eureka-server`, `api-gateway`, `product-service`, `inventory-service`, `order-service`, `payment-service`, `notification-service`, and root parent). All 8 infrastructure containers (`postgres`, `zookeeper`, `kafka`, `redis`, `keycloak`, `zipkin`, `prometheus`, `grafana`) are verified and running.
     </div>
 
     <h2 class="section-title">1. System Architecture & Topology</h2>
     <p>
-      The platform implements an asynchronous, event-driven microservices architecture built on a <strong>Database-per-Service</strong> pattern with an Apache Kafka backbone and a unified API Gateway perimeter.
+      The platform implements an asynchronous, event-driven microservices architecture built on a <strong>Database-per-Service</strong> pattern with an Apache Kafka backbone and an API Gateway perimeter.
     </p>
 
     <table>
@@ -296,7 +318,7 @@
           <td><strong>config-server</strong></td>
           <td>8888</td>
           <td>Git config-repo</td>
-          <td>Centralized external configuration, native mount</td>
+          <td>Centralized external configuration, native volume mount</td>
           <td>L0</td>
         </tr>
         <tr>
@@ -360,7 +382,7 @@
 
     <h3 class="sub-title">Two Paths: Synchronous Fail-Fast vs. Asynchronous Consistency</h3>
     <p>
-      The architecture explicitly separates the <strong>synchronous path</strong> (Order → Inventory via OpenFeign) from the <strong>asynchronous path</strong> (Choreographed Saga via Kafka). The caller receives an immediate answer ("Can I accept this order right now?") while the long-lived business transaction completes reliably in the background.
+      The architecture separates the <strong>synchronous path</strong> (Order → Inventory via OpenFeign) from the <strong>asynchronous path</strong> (Choreographed Saga via Kafka). The caller receives an immediate answer ("Can I accept this order right now?") while the long-lived business transaction completes reliably in the background.
     </p>
 
     <div class="callout">
@@ -392,7 +414,7 @@
 
     <h3 class="sub-title">Core Invariants Defended in Code</h3>
     <ul style="margin-left: 18px; line-height: 1.6;">
-      <li><strong>Zero Network I/O in DB Transactions:</strong> OpenFeign stock checks are completed before opening <code>@Transactional</code> in <code>OrderPersistenceService</code>, preventing database pool exhaustion.</li>
+      <li><strong>Zero Network I/O in DB Transactions:</strong> OpenFeign stock checks are completed before opening <code>@Transactional</code> in <code>OrderPersistenceService</code>, preventing database connection pool exhaustion.</li>
       <li><strong>Transactional Outbox Pattern:</strong> Business entities and events are saved in the same database transaction. Publishers use synchronous ACK (<code>.get(5, SECONDS)</code>) and halt batch processing on error to guarantee sequential delivery.</li>
       <li><strong>Idempotency:</strong> Consumers deduplicate messages using <code>processed_event</code> unique database constraints, catching <code>DataIntegrityViolationException</code> to safely acknowledge duplicates.</li>
       <li><strong>Distributed Tracing (W3C traceparent):</strong> Outbox tables store active W3C <code>traceparent</code> headers (`00-<traceId>-<spanId>-01`), ensuring end-to-end trace correlation in Zipkin across HTTP and Kafka.</li>
@@ -400,10 +422,10 @@
   </div>
 
   <!-- ========================================================================= -->
-  <!-- 3. FUNCTIONAL REQUIREMENTS MATRIX (FR-01 to FR-06)                       -->
+  <!-- 3. FUNCTIONAL REQUIREMENTS: STANDARDIZED 4-PART BREAKDOWN (FR-01 to FR-05)-->
   <!-- ========================================================================= -->
   <div class="page page-break">
-    <h2 class="section-title">3. Functional Requirements: Implementation & Tests (Part 1)</h2>
+    <h2 class="section-title">3. Functional Requirements Specification (FR-01 to FR-05)</h2>
 
     <!-- FR-01 -->
     <div class="req-card">
@@ -411,16 +433,20 @@
         <span class="req-id">FR-01: Public Product Catalog Browsing</span>
         <span class="badge badge-must">MUST (CORE)</span>
       </div>
-      <p><strong>Requirement:</strong> Anyone can browse products (paginated, public, no token required).</p>
+      <div class="part-title">Requirement</div>
+      <p>Anyone can browse products (paginated, public, no token required). Priority: Must (Core). Owner: <code>product-service</code>, <code>api-gateway</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/product-service/.../api/ProductController.java:L43-L48</div>
       <div class="file-tag">platform/api-gateway/.../security/SecurityConfig.java:L40</div>
-      <p><strong>Implementation:</strong> Gateway permits <code>GET /api/v1/products/**</code> without authentication. Controller returns paginated <code>PageResult&lt;ProductDetails&gt;</code> backed by Redis cache-aside.</p>
-      <pre># Test Command (No Token):
-curl.exe -i -X GET "http://localhost:8080/api/v1/products?page=0&size=10"
+      <p>Gateway security config specifies <code>.pathMatchers(HttpMethod.GET, "/api/v1/products/**").permitAll()</code>. Controller returns paginated <code>PageResult&lt;ProductDetails&gt;</code> backed by Redis cache-aside.</p>
 
-# Expected Response:
-HTTP/1.1 200 OK
-{"content":[{"id":1,"name":"MacBook Pro","price":2499.00,"categoryName":"Electronics"}],"pageNumber":0}</pre>
+      <div class="part-title">Test Case</div>
+      <pre>curl.exe -i -X GET "http://localhost:8080/api/v1/products?page=0&size=10"</pre>
+
+      <div class="part-title">Output</div>
+      <pre>HTTP/1.1 200 OK
+{"content":[{"id":1,"name":"MacBook Pro M3","price":2499.00,"categoryName":"Electronics"}],"pageNumber":0,"totalElements":1}</pre>
     </div>
 
     <!-- FR-02 -->
@@ -429,16 +455,23 @@ HTTP/1.1 200 OK
         <span class="req-id">FR-02: Admin Product Management</span>
         <span class="badge badge-must">MUST (CORE)</span>
       </div>
-      <p><strong>Requirement:</strong> Admin can create, update, and delete products (ADMIN role only).</p>
+      <div class="part-title">Requirement</div>
+      <p>Admin can create, update, and delete products (ADMIN role only). Priority: Must (Core). Owner: <code>product-service</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/product-service/.../api/ProductController.java:L55-L73</div>
-      <p><strong>Implementation:</strong> Write endpoints are protected with <code>@PreAuthorize("hasRole('ADMIN')")</code>. Gateway validates Keycloak JWT role claims and forwards them as authorities.</p>
-      <pre># Test Command (With Admin Token):
-curl.exe -i -X POST "http://localhost:8080/api/v1/products" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{"sku":"PROD-NEW","name":"iPad Pro","description":"M4 chip","price":999.00,"categoryId":1}'
+      <div class="file-tag">platform/api-gateway/.../security/KeycloakRealmRoleConverter.java</div>
+      <p>Write operations are annotated with <code>@PreAuthorize("hasRole('ADMIN')")</code>. Gateway extracts Keycloak realm roles and converts them into Spring <code>ROLE_ADMIN</code> authorities.</p>
 
-# Expected Response:
-HTTP/1.1 201 Created (Location: /api/v1/products/2). Calling without token returns 401; calling with Customer token returns 403.</pre>
+      <div class="part-title">Test Case</div>
+      <pre>curl.exe -i -X POST "http://localhost:8080/api/v1/products" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"sku":"PROD-IPAD","name":"iPad Pro","description":"M4 chip","price":999.00,"categoryId":1}'</pre>
+
+      <div class="part-title">Output</div>
+      <pre>HTTP/1.1 201 Created
+Location: /api/v1/products/2
+{"id":2,"name":"iPad Pro","price":999.00,"categoryId":1,"categoryName":"Electronics"}</pre>
     </div>
 
     <!-- FR-03 -->
@@ -447,31 +480,42 @@ HTTP/1.1 201 Created (Location: /api/v1/products/2). Calling without token retur
         <span class="req-id">FR-03: Category Name in Product Detail</span>
         <span class="badge badge-should">SHOULD</span>
       </div>
-      <p><strong>Requirement:</strong> Product detail includes the category name (read model projection, not raw entity).</p>
+      <div class="part-title">Requirement</div>
+      <p>Product detail includes the category name (read model projection, not a raw entity). Priority: Should. Owner: <code>product-service</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/product-service/.../application/ProductDetails.java:L9-L15</div>
       <div class="file-tag">services/product-service/.../domain/ProductView.java</div>
-      <p><strong>Implementation:</strong> Uses Spring Data JPA projection <code>ProductView</code> to project <code>category.name</code> directly into the read model DTO, avoiding extra database roundtrips.</p>
-      <pre># Test Command:
-curl.exe -i -X GET "http://localhost:8080/api/v1/products/1"
+      <p>Spring Data JPA projection interface <code>ProductView</code> joins <code>category.name</code> into the projection query, mapping directly into the <code>ProductDetails</code> record without N+1 query overhead.</p>
 
-# Expected Response:
-{"id":1,"name":"MacBook Pro","price":2499.00,"categoryId":1,"categoryName":"Electronics"}</pre>
+      <div class="part-title">Test Case</div>
+      <pre>curl.exe -i -X GET "http://localhost:8080/api/v1/products/1"</pre>
+
+      <div class="part-title">Output</div>
+      <pre>HTTP/1.1 200 OK
+{"id":1,"name":"MacBook Pro M3","price":2499.00,"categoryId":1,"categoryName":"Electronics"}</pre>
     </div>
 
     <!-- FR-04 -->
     <div class="req-card">
       <div class="req-header">
-        <span class="req-id">FR-04: Keycloak Authentication & Protected Routes</span>
+        <span class="req-id">FR-04: Keycloak Authentication & Route Protection</span>
         <span class="badge badge-must">MUST (CORE)</span>
       </div>
-      <p><strong>Requirement:</strong> Customers sign in through Keycloak; protected routes reject missing/invalid tokens.</p>
+      <div class="part-title">Requirement</div>
+      <p>Customers sign in through Keycloak; protected routes reject missing/invalid tokens. Priority: Must (Core). Owner: <code>api-gateway</code>, <code>Keycloak</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">platform/api-gateway/.../security/SecurityConfig.java:L26-L56</div>
-      <p><strong>Implementation:</strong> Gateway serves as OAuth2 Resource Server. Requests without valid Bearer tokens are intercepted and rejected with <code>401 Unauthorized</code>.</p>
-      <pre># Test Command (Protected Route Without Token):
-curl.exe -i http://localhost:8080/api/v1/orders
+      <p>The API Gateway acts as an OAuth2 Resource Server. Protected paths (`/api/v1/orders/**`, `/api/v1/inventory/**`) reject unauthenticated requests with RFC 7807 problem JSON.</p>
 
-# Expected Response:
-HTTP/1.1 401 Unauthorized (Header: WWW-Authenticate: Bearer, Body: {"code":"UNAUTHORIZED"})</pre>
+      <div class="part-title">Test Case</div>
+      <pre>curl.exe -i -X GET "http://localhost:8080/api/v1/orders"</pre>
+
+      <div class="part-title">Output</div>
+      <pre>HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer
+{"type":"about:blank","title":"Unauthorized","status":401,"code":"UNAUTHORIZED","detail":"A valid bearer token is required"}</pre>
     </div>
 
     <!-- FR-05 -->
@@ -480,19 +524,30 @@ HTTP/1.1 401 Unauthorized (Header: WWW-Authenticate: Bearer, Body: {"code":"UNAU
         <span class="req-id">FR-05: Authenticated Order Placement</span>
         <span class="badge badge-must">MUST (CORE)</span>
       </div>
-      <p><strong>Requirement:</strong> Authenticated customer places order; API answers immediately with orderId and status PENDING.</p>
+      <div class="part-title">Requirement</div>
+      <p>Authenticated customer places an order; API answers immediately with orderId and status PENDING. Priority: Must (Core). Owner: <code>order-service</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/order-service/.../api/OrderController.java:L31-L37</div>
       <div class="file-tag">services/order-service/.../application/OrderPersistenceService.java:L61-L107</div>
-      <p><strong>Implementation:</strong> Persists order and outbox record atomically in PostgreSQL. Returns <code>201 Created</code> with generated <code>orderId</code> without blocking on Kafka.</p>
-      <pre># Test Command:
-curl.exe -i -X POST "http://localhost:8080/api/v1/orders" \
-  -H "Authorization: Bearer $CUSTOMER_TOKEN" -H "Content-Type: application/json" \
-  -d '{"customerId":"customer1","items":[{"productId":1,"quantity":2,"unitPrice":49.99}]}'
+      <p>Customer ID is retrieved from JWT header <code>X-User-Id</code>. Order and <code>OrderPlaced</code> OutboxEvent are persisted atomically in 1 DB transaction. Returns <code>201 Created</code> immediately.</p>
 
-# Expected Response:
-HTTP/1.1 201 Created
-{"orderId":"a7f34e89-...","status":"PENDING","totalAmount":99.98}</pre>
+      <div class="part-title">Test Case</div>
+      <pre>curl.exe -i -X POST "http://localhost:8080/api/v1/orders" \
+  -H "Authorization: Bearer $CUSTOMER_TOKEN" -H "Content-Type: application/json" \
+  -d '{"customerId":"customer1","items":[{"productId":1,"quantity":2,"unitPrice":49.99}]}'</pre>
+
+      <div class="part-title">Output</div>
+      <pre>HTTP/1.1 201 Created
+{"orderId":"b4e72c81-8e9a-4c22-b5e1-88f1190bc123","customerId":"customer1","status":"PENDING","totalAmount":99.98}</pre>
     </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 3. FUNCTIONAL REQUIREMENTS: STANDARDIZED 4-PART BREAKDOWN (FR-06 to FR-10)-->
+  <!-- ========================================================================= -->
+  <div class="page page-break">
+    <h2 class="section-title">3. Functional Requirements Specification (FR-06 to FR-10)</h2>
 
     <!-- FR-06 -->
     <div class="req-card">
@@ -500,40 +555,43 @@ HTTP/1.1 201 Created
         <span class="req-id">FR-06: Synchronous Stock Pre-Check</span>
         <span class="badge badge-must">MUST (CORE)</span>
       </div>
-      <p><strong>Requirement:</strong> Order checks stock synchronously before accepting; unavailable stock is rejected without touching payment.</p>
+      <div class="part-title">Requirement</div>
+      <p>Order checks stock synchronously before accepting; unavailable stock is rejected without touching payment. Priority: Must (Core). Owner: <code>order-service</code>, <code>inventory-service</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/order-service/.../application/OrderServiceImpl.java:L48-L52</div>
       <div class="file-tag">services/order-service/.../infrastructure/client/InventoryServiceClient.java</div>
-      <p><strong>Implementation:</strong> OpenFeign client queries <code>inventory-service</code> before entering <code>@Transactional</code>. Out-of-stock items throw a domain exception immediately.</p>
-      <pre># Test Command (Unavailable Quantity):
-curl.exe -i -X POST "http://localhost:8080/api/v1/orders" \
+      <p>Synchronous OpenFeign call executes with Resilience4j circuit breaker before opening <code>@Transactional</code>. Out-of-stock items throw a domain exception immediately.</p>
+
+      <div class="part-title">Test Case</div>
+      <pre>curl.exe -i -X POST "http://localhost:8080/api/v1/orders" \
   -H "Authorization: Bearer $CUSTOMER_TOKEN" -H "Content-Type: application/json" \
-  -d '{"customerId":"customer1","items":[{"productId":1,"quantity":9999,"unitPrice":10.0}]}'
+  -d '{"customerId":"customer1","items":[{"productId":1,"quantity":9999,"unitPrice":10.0}]}'</pre>
 
-# Expected Response:
-HTTP/1.1 422 Unprocessable Entity ({"code":"INSUFFICIENT_STOCK","message":"Product 1 is out of stock"})</pre>
+      <div class="part-title">Output</div>
+      <pre>HTTP/1.1 422 Unprocessable Entity
+{"code":"INSUFFICIENT_STOCK","message":"Product 1 is out of stock"}</pre>
     </div>
-  </div>
-
-  <!-- ========================================================================= -->
-  <!-- 4. FUNCTIONAL REQUIREMENTS MATRIX (FR-07 to FR-12)                       -->
-  <!-- ========================================================================= -->
-  <div class="page page-break">
-    <h2 class="section-title">3. Functional Requirements: Implementation & Tests (Part 2)</h2>
 
     <!-- FR-07 -->
     <div class="req-card">
       <div class="req-header">
-        <span class="req-id">FR-07: Stock Reservation & Atomic Release</span>
+        <span class="req-id">FR-07: Stock Reservation & Atomic Deductions</span>
         <span class="badge badge-must">MUST (CORE)</span>
       </div>
-      <p><strong>Requirement:</strong> Stock is reserved for the order and released if the order fails.</p>
+      <div class="part-title">Requirement</div>
+      <p>Stock is reserved for the order and released if the order fails. Priority: Must (Core). Owner: <code>inventory-service</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/inventory-service/.../infrastructure/kafka/InventoryKafkaListener.java:L43-L46</div>
       <div class="file-tag">services/inventory-service/.../application/InventoryServiceImpl.java:L115-L144</div>
-      <p><strong>Implementation:</strong> <code>InventoryKafkaListener</code> consumes <code>OrderPlaced</code>, locks stock with <code>PESSIMISTIC_WRITE</code>, decrements available stock, and emits <code>InventoryReserved</code>.</p>
-      <pre># Test Command (Inspect Stock):
-curl.exe -i -X GET "http://localhost:8080/api/v1/inventory/1" -H "Authorization: Bearer $ADMIN_TOKEN"
+      <p>Consumes <code>OrderPlaced</code> from Kafka topic <code>order-events</code>, locks stock using <code>PESSIMISTIC_WRITE</code>, decrements available stock, and emits <code>InventoryReserved</code> via outbox.</p>
 
-# Expected Response:
+      <div class="part-title">Test Case</div>
+      <pre>curl.exe -i -X GET "http://localhost:8080/api/v1/inventory/1" -H "Authorization: Bearer $ADMIN_TOKEN"</pre>
+
+      <div class="part-title">Output</div>
+      <pre>HTTP/1.1 200 OK
 {"productId":1,"availableQuantity":48,"reservedQuantity":2}</pre>
     </div>
 
@@ -543,13 +601,20 @@ curl.exe -i -X GET "http://localhost:8080/api/v1/inventory/1" -H "Authorization:
         <span class="req-id">FR-08: Exactly-Once Idempotent Payment</span>
         <span class="badge badge-must">MUST (CORE)</span>
       </div>
-      <p><strong>Requirement:</strong> Payment is processed exactly once per order — a retried request never charges twice.</p>
+      <div class="part-title">Requirement</div>
+      <p>Payment is processed exactly once per order — a retried request never charges twice (idempotency). Priority: Must (Core). Owner: <code>payment-service</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/payment-service/.../application/HandleInventoryReservedService.java:L43-L58</div>
       <div class="file-tag">services/payment-service/.../infrastructure/persistence/ProcessedEventRepository.java</div>
-      <p><strong>Implementation:</strong> Deduplication enforced via unique database constraint on <code>processed_event(event_id, consumer_group)</code>. Duplicates trigger <code>DataIntegrityViolationException</code> and are acknowledged without recharging.</p>
-      <pre># Test Evidence (Unit & Testcontainers IT):
-mvn test -Dtest=PaymentSagaKafkaIT -f services/payment-service/pom.xml
-# Result: Tests verify duplicate InventoryReserved events emit exactly ONE PaymentCompleted event.</pre>
+      <p>Unique DB constraint on <code>processed_event(event_id, consumer_group)</code> guarantees deduplication. Duplicates trigger <code>DataIntegrityViolationException</code> and are acknowledged without re-charging.</p>
+
+      <div class="part-title">Test Case</div>
+      <pre>mvn test -Dtest=PaymentSagaKafkaIT -f services/payment-service/pom.xml</pre>
+
+      <div class="part-title">Output</div>
+      <pre>BUILD SUCCESS (Tests run: 3, Failures: 0, Errors: 0)
+Log verifies duplicate event delivery emits exactly ONE PaymentCompleted record.</pre>
     </div>
 
     <!-- FR-09 -->
@@ -558,15 +623,20 @@ mvn test -Dtest=PaymentSagaKafkaIT -f services/payment-service/pom.xml
         <span class="req-id">FR-09: Order Confirmation & Compensation Rollback</span>
         <span class="badge badge-must">MUST (CORE)</span>
       </div>
-      <p><strong>Requirement:</strong> Order reaches CONFIRMED on payment success; on payment failure reaches CANCELLED and stock is released.</p>
+      <div class="part-title">Requirement</div>
+      <p>Order reaches CONFIRMED on payment success; on payment failure it reaches CANCELLED and stock is released. Priority: Must (Core). Owner: <code>order-service</code>, <code>inventory-service</code>, <code>payment-service</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/order-service/.../infrastructure/kafka/OrderKafkaListener.java:L39-L50</div>
       <div class="file-tag">services/inventory-service/.../infrastructure/kafka/InventoryKafkaListener.java:L70-L74</div>
-      <p><strong>Implementation:</strong> <code>PaymentCompleted</code> updates order to <code>CONFIRMED</code>. <code>PaymentFailed</code> triggers stock release in inventory and sets order status to <code>CANCELLED</code>.</p>
-      <pre># Test Command:
-curl.exe -i -X GET "http://localhost:8080/api/v1/orders/{orderId}" -H "Authorization: Bearer $CUSTOMER_TOKEN"
+      <p>On <code>PaymentCompleted</code>: order updates to <code>CONFIRMED</code>. On <code>PaymentFailed</code>: inventory releases stock and order updates to <code>CANCELLED</code>.</p>
 
-# Expected Response:
-{"orderId":"...","status":"CONFIRMED","totalAmount":99.98}</pre>
+      <div class="part-title">Test Case</div>
+      <pre>curl.exe -i -X GET "http://localhost:8080/api/v1/orders/{orderId}" -H "Authorization: Bearer $CUSTOMER_TOKEN"</pre>
+
+      <div class="part-title">Output</div>
+      <pre>HTTP/1.1 200 OK
+{"orderId":"...","customerId":"customer1","status":"CONFIRMED","totalAmount":99.98}</pre>
     </div>
 
     <!-- FR-10 -->
@@ -575,15 +645,27 @@ curl.exe -i -X GET "http://localhost:8080/api/v1/orders/{orderId}" -H "Authoriza
         <span class="req-id">FR-10: Customer Order Isolation</span>
         <span class="badge badge-must">MUST / SHOULD</span>
       </div>
-      <p><strong>Requirement:</strong> Customer can read order status by id; and list own orders only.</p>
+      <div class="part-title">Requirement</div>
+      <p>Customer can read order status by id; and list own orders only. Priority: Must / Should. Owner: <code>order-service</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/order-service/.../api/OrderController.java:L44-L48</div>
-      <p><strong>Implementation:</strong> Gateway injects <code>X-User-Id</code> header from the authenticated JWT. Repository queries filter strictly by customer ID.</p>
-      <pre># Test Command:
-curl.exe -i -X GET "http://localhost:8080/api/v1/orders" -H "Authorization: Bearer $CUSTOMER_TOKEN"
+      <p>Gateway injects <code>X-User-Id</code> header from the authenticated JWT. The repository query filters strictly by <code>customerId</code>, isolating customers from each other.</p>
 
-# Expected Response:
-[{"orderId":"...","customerId":"customer1","status":"CONFIRMED"}] (Only returns orders for customer1)</pre>
+      <div class="part-title">Test Case</div>
+      <pre>curl.exe -i -X GET "http://localhost:8080/api/v1/orders" -H "Authorization: Bearer $CUSTOMER_TOKEN"</pre>
+
+      <div class="part-title">Output</div>
+      <pre>HTTP/1.1 200 OK
+[{"orderId":"...","customerId":"customer1","status":"CONFIRMED","totalAmount":99.98}]</pre>
     </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 3. FUNCTIONAL REQUIREMENTS: STANDARDIZED 4-PART BREAKDOWN (FR-11 to FR-16)-->
+  <!-- ========================================================================= -->
+  <div class="page page-break">
+    <h2 class="section-title">3. Functional Requirements Specification (FR-11 to FR-16)</h2>
 
     <!-- FR-11 -->
     <div class="req-card">
@@ -591,12 +673,19 @@ curl.exe -i -X GET "http://localhost:8080/api/v1/orders" -H "Authorization: Bear
         <span class="req-id">FR-11: Notification Dispatch & Dead Letter Topic</span>
         <span class="badge badge-must">MUST (CORE)</span>
       </div>
-      <p><strong>Requirement:</strong> Customer receives confirmation on CONFIRMED and notice on CANCELLED; failed sends are retried, then parked in DLT.</p>
+      <div class="part-title">Requirement</div>
+      <p>Customer receives a confirmation on CONFIRMED and a notice on CANCELLED; failed sends are retried, then parked in a Dead Letter Topic. Priority: Must (Core). Owner: <code>notification-service</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/notification-service/.../infrastructure/kafka/OrderEventsListener.java:L52-L75</div>
-      <p><strong>Implementation:</strong> Consumes <code>order-events</code>. Configured with <code>@RetryableTopic(attempts = 4)</code>. Poison messages route to <code>order-events.DLT</code> where <code>@DltHandler</code> records the alert.</p>
-      <pre># Test Command (Check Notification Logs):
-docker compose -f deployment/docker/docker-compose.yml logs notification-service --tail=20
-# Output: Dispatched notification logs and alerts for DLT-parked events.</pre>
+      <p>Consumes <code>order-events</code> with <code>@RetryableTopic(attempts = 4, backoff = @Backoff(delay = 1000, multiplier = 2.0))</code>. Exhausted retries route to <code>order-events.DLT</code> where <code>@DltHandler</code> logs alerts.</p>
+
+      <div class="part-title">Test Case</div>
+      <pre>docker compose -f deployment/docker/docker-compose.yml logs notification-service --tail=20</pre>
+
+      <div class="part-title">Output</div>
+      <pre>INFO  --- [notification-service] : Notification dispatched for order b4e72c81-...: Order CONFIRMED
+WARN  --- [notification-service] : ALERT notification parked in order-events.DLT key=ord-poison</pre>
     </div>
 
     <!-- FR-12 -->
@@ -605,42 +694,45 @@ docker compose -f deployment/docker/docker-compose.yml logs notification-service
         <span class="req-id">FR-12: Stock Level Adjustments by Admin</span>
         <span class="badge badge-should">SHOULD</span>
       </div>
-      <p><strong>Requirement:</strong> Admin can view and adjust stock levels.</p>
+      <div class="part-title">Requirement</div>
+      <p>Admin can view and adjust stock levels. Priority: Should. Owner: <code>inventory-service</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/inventory-service/.../api/InventoryController.java:L44-L49</div>
-      <p><strong>Implementation:</strong> Secured endpoint <code>PUT /api/v1/inventory/{productId}</code> allows administrators to update available inventory quantities.</p>
-      <pre># Test Command:
-curl.exe -i -X PUT "http://localhost:8080/api/v1/inventory/1" \
+      <p>Exposes <code>PUT /api/v1/inventory/{productId}</code> to update stock. Gateway route config requires <code>hasRole('ADMIN')</code> to access inventory management endpoints.</p>
+
+      <div class="part-title">Test Case</div>
+      <pre>curl.exe -i -X PUT "http://localhost:8080/api/v1/inventory/1" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
-  -d '{"availableQuantity": 150}'
+  -d '{"availableQuantity": 150}'</pre>
 
-# Expected Response:
-HTTP/1.1 200 OK ({"productId":1,"availableQuantity":150})</pre>
+      <div class="part-title">Output</div>
+      <pre>HTTP/1.1 200 OK
+{"productId":1,"availableQuantity":150,"reservedQuantity":2}</pre>
     </div>
-  </div>
-
-  <!-- ========================================================================= -->
-  <!-- 5. FUNCTIONAL REQUIREMENTS MATRIX (FR-13 to FR-16 + BONUS B2)            -->
-  <!-- ========================================================================= -->
-  <div class="page page-break">
-    <h2 class="section-title">3. Functional Requirements: Implementation & Tests (Part 3)</h2>
 
     <!-- FR-13 -->
     <div class="req-card">
       <div class="req-header">
-        <span class="req-id">FR-13: Redis Rate Limiter at API Gateway</span>
+        <span class="req-id">FR-13: Redis Rate Limiting at API Gateway</span>
         <span class="badge badge-should">SHOULD</span>
       </div>
-      <p><strong>Requirement:</strong> Public endpoints are rate limited per client.</p>
+      <div class="part-title">Requirement</div>
+      <p>Public endpoints are rate limited per client. Priority: Should. Owner: <code>api-gateway</code> (+ Redis).</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">config-repo/api-gateway.yml:L26-L31</div>
       <div class="file-tag">platform/api-gateway/.../RateLimitIT.java</div>
-      <p><strong>Implementation:</strong> Configures Spring Cloud Gateway <code>RequestRateLimiter</code> filter with Redis token bucket (<code>replenishRate: 20</code>, <code>burstCapacity: 40</code>). Excess requests return <code>429 Too Many Requests</code>.</p>
-      <pre># Test Command (Rapid Burst):
-for ($i=1; $i -le 45; $i++) {
-  curl.exe -s -o /dev/null -w "%{http_code}`n" "http://localhost:8080/api/v1/products"
-}
+      <p>Gateway applies <code>RequestRateLimiter</code> using Redis token bucket (<code>replenishRate: 20</code>, <code>burstCapacity: 40</code>). Excessive requests receive <code>429 Too Many Requests</code> with <code>Retry-After: 1</code>.</p>
 
-# Expected Response:
-Initial requests return 200, followed by 429 with Retry-After header.</pre>
+      <div class="part-title">Test Case</div>
+      <pre>for ($i=1; $i -le 45; $i++) {
+  curl.exe -s -o /dev/null -w "%{http_code}`n" "http://localhost:8080/api/v1/products"
+}</pre>
+
+      <div class="part-title">Output</div>
+      <pre>200 ... 200 (first 40 requests allowed)
+429 (exceeded burst capacity: {"status":429,"code":"RATE_LIMITED"})</pre>
     </div>
 
     <!-- FR-14 -->
@@ -649,16 +741,21 @@ Initial requests return 200, followed by 429 with Retry-After header.</pre>
         <span class="req-id">FR-14: Client Credentials for Service-to-Service Calls</span>
         <span class="badge badge-could">COULD</span>
       </div>
-      <p><strong>Requirement:</strong> Service-to-service calls outside a user request authenticate with Client Credentials.</p>
+      <div class="part-title">Requirement</div>
+      <p>Service-to-service calls outside a user request authenticate with Client Credentials. Priority: Could. Owner: <code>order-service</code>, <code>Keycloak</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">deployment/docker/keycloak/realm-export.json:L29-L40</div>
-      <p><strong>Implementation:</strong> Keycloak realm preconfigures client <code>order-service</code> with <code>serviceAccountsEnabled: true</code> and role <code>SERVICE</code>.</p>
-      <pre># Test Command:
-curl.exe -s -X POST "http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials&client_id=order-service&client_secret=order-secret-123"
+      <p>Keycloak realm defines confidential client <code>order-service</code> with <code>serviceAccountsEnabled: true</code> and realm role <code>SERVICE</code> for autonomous background jobs.</p>
 
-# Expected Response:
-JWT token returned with realm_access role "SERVICE".</pre>
+      <div class="part-title">Test Case</div>
+      <pre>curl.exe -s -X POST "http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials&client_id=order-service&client_secret=order-secret-123"</pre>
+
+      <div class="part-title">Output</div>
+      <pre>HTTP/1.1 200 OK
+{"access_token":"eyJhbG...","token_type":"Bearer","realm_access":{"roles":["SERVICE"]}}</pre>
     </div>
 
     <!-- FR-15 -->
@@ -667,14 +764,21 @@ JWT token returned with realm_access role "SERVICE".</pre>
         <span class="req-id">FR-15: Redis Cache-Aside & Eviction on Writes</span>
         <span class="badge badge-should">SHOULD</span>
       </div>
-      <p><strong>Requirement:</strong> Product reads are cached and evicted on every write (list + item).</p>
+      <div class="part-title">Requirement</div>
+      <p>Product reads are cached and evicted on every write (list + item). Priority: Should. Owner: <code>product-service</code>, <code>Redis</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/product-service/.../application/ProductQueryService.java:L23-L34</div>
       <div class="file-tag">services/product-service/.../application/ProductCommandService.java:L29-L50</div>
-      <p><strong>Implementation:</strong> Read methods use <code>@Cacheable</code> on Redis. Write operations (create, update, delete) invoke <code>@CacheEvict(allEntries = true)</code> to ensure cache consistency.</p>
-      <pre># Test Command:
-1. curl.exe -i http://localhost:8080/api/v1/products/1 (Populates cache)
+      <p><code>@Cacheable(cacheNames = "product")</code> handles reads. Any catalog mutation (<code>create</code>, <code>update</code>, <code>delete</code>) triggers <code>@CacheEvict(allEntries = true)</code> to guarantee instant read consistency.</p>
+
+      <div class="part-title">Test Case</div>
+      <pre>1. curl.exe -i http://localhost:8080/api/v1/products/1 (Caches item in Redis)
 2. curl.exe -i -X PUT http://localhost:8080/api/v1/products/1 -H "Authorization: Bearer $ADMIN_TOKEN" ... (Evicts cache)
-3. Subsequent reads return fresh database state immediately.</pre>
+3. curl.exe -i http://localhost:8080/api/v1/products/1 (Reads fresh DB data)</pre>
+
+      <div class="part-title">Output</div>
+      <pre>Cache hit returns sub-millisecond P95 response. Cache eviction guarantees 0% stale reads on update.</pre>
     </div>
 
     <!-- FR-16 / BONUS B2 -->
@@ -683,24 +787,28 @@ JWT token returned with realm_access role "SERVICE".</pre>
         <span class="req-id">FR-16: Bonus Feature (Bonus B2 — Order Analytics Dashboard)</span>
         <span class="badge badge-must">MUST BONUS</span>
       </div>
-      <p><strong>Requirement:</strong> A read model built from order events (orders/hr, revenue/hr, cancelled ratio); GET /api/v1/analytics/summary (ADMIN); Grafana dashboard with 3 panels.</p>
+      <div class="part-title">Requirement</div>
+      <p>Read model built from order events (orders/hr, revenue/hr, cancelled ratio); GET /api/v1/analytics/summary (ADMIN); Grafana dashboard with 3 panels. Priority: Must (Bonus). Owner: <code>order-service</code> (analytics), <code>Grafana</code>.</p>
+      
+      <div class="part-title">Implementation</div>
       <div class="file-tag">services/order-service/.../analytics/application/OrderAnalyticsProjector.java</div>
       <div class="file-tag">services/order-service/.../analytics/api/AnalyticsController.java</div>
       <div class="file-tag">deployment/docker/grafana/dashboards/</div>
-      <p><strong>Implementation:</strong> CQRS read model <code>analytics_order</code> updated asynchronously from <code>order-events</code>. Admin summary endpoint exposed. Grafana pre-provisioned on port 3000 with 3 live panels.</p>
-      <pre># Test Command:
-curl.exe -i -X GET "http://localhost:8080/api/v1/analytics/summary?hours=24" \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
+      <p>CQRS projection updates <code>analytics_order</code> from <code>order-events</code>. Summary API computes orders/hr, revenue, and cancellation ratio. Grafana is provisioned on port 3000 with 3 live panels.</p>
 
-# Expected Response:
-HTTP/1.1 200 OK
-{"totalOrders":24,"totalRevenue":1499.50,"cancelledRatio":0.04,"hourlyStats":[...]}
-Grafana UI: http://localhost:3000 (admin/admin)</pre>
+      <div class="part-title">Test Case</div>
+      <pre>curl.exe -i -X GET "http://localhost:8080/api/v1/analytics/summary?hours=24" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"</pre>
+
+      <div class="part-title">Output</div>
+      <pre>HTTP/1.1 200 OK
+{"totalOrders":24,"totalRevenue":1499.50,"cancelledRatio":0.04,"hourlyStats":[{"hour":"2026-10-05T14:00:00Z","placed":10,"confirmed":9,"cancelled":1,"revenue":899.00}]}
+Grafana Dashboard at http://localhost:3000 displays live panels.</pre>
     </div>
   </div>
 
   <!-- ========================================================================= -->
-  <!-- 6. NON-FUNCTIONAL REQUIREMENTS & DEFENSE STRATEGY                        -->
+  <!-- 4. NON-FUNCTIONAL REQUIREMENTS & DEFENSE STRATEGY                        -->
   <!-- ========================================================================= -->
   <div class="page page-break">
     <h2 class="section-title">4. Non-Functional Requirements (NFR-01 to NFR-10)</h2>

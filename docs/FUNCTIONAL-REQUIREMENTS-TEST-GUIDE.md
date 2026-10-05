@@ -8,11 +8,11 @@
 
 ## Quick Reference: JWT Token Setup for Testing
 
-Before running the test cases below, obtain the `CUSTOMER` and `ADMIN` tokens from Keycloak (`http://localhost:8180`):
+Before executing the test cases below, obtain active `CUSTOMER` and `ADMIN` tokens from Keycloak (`http://localhost:8180`):
 
-### In PowerShell:
+### PowerShell Token Acquisition:
 ```powershell
-# Get Customer Token
+# Get Customer Token (Role: CUSTOMER)
 $CUSTOMER_TOKEN = (curl.exe -s -X POST "http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/token" `
   -H "Content-Type: application/x-www-form-urlencoded" `
   -d "grant_type=password" `
@@ -20,7 +20,7 @@ $CUSTOMER_TOKEN = (curl.exe -s -X POST "http://localhost:8180/realms/ecommerce-p
   -d "username=customer1" `
   -d "password=password" | ConvertFrom-Json).access_token
 
-# Get Admin Token
+# Get Admin Token (Role: ADMIN)
 $ADMIN_TOKEN = (curl.exe -s -X POST "http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/token" `
   -H "Content-Type: application/x-www-form-urlencoded" `
   -d "grant_type=password" `
@@ -32,272 +32,413 @@ $ADMIN_TOKEN = (curl.exe -s -X POST "http://localhost:8180/realms/ecommerce-plat
 ---
 
 ## FR-01: Public Product Catalog Browsing
+
+### 1. Requirement
+- **Specification:** Anyone can browse products (paginated, public, no authentication token required).
 - **Priority:** Must (Core)
 - **Owner Service(s):** [product-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service), [api-gateway](file:///d:/Github/Capstone%20Microservices/capstone-platform/platform/api-gateway)
-- **How It Works:**
-  Anyone can browse products with pagination, sorting, and category filters without passing an Authorization token. The API Gateway explicitly permits all `GET /api/v1/products/**` calls. Reads check the Redis cache-aside first; on a cache miss, the JPA projection query executes and stores the result in Redis.
+
+### 2. Implementation
+- **Architecture Flow:** The API Gateway explicitly permits all public `GET /api/v1/products/**` requests. `ProductController` delegates to `ProductQueryService`, which checks the Redis cache-aside first; on a cache miss, Spring Data JPA executes a projection query on PostgreSQL and populates Redis.
 - **Code Locations:**
   - Controller: [ProductController.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service/src/main/java/com/ecommerce/product/api/ProductController.java#L43-L48)
-  - Security Config: [SecurityConfig.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/platform/api-gateway/src/main/java/com/ecommerce/gateway/security/SecurityConfig.java#L40) (`.pathMatchers(HttpMethod.GET, "/api/v1/products/**").permitAll()`)
-- **How to Test:**
+  - Gateway Security: [SecurityConfig.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/platform/api-gateway/src/main/java/com/ecommerce/gateway/security/SecurityConfig.java#L40) (`.pathMatchers(HttpMethod.GET, "/api/v1/products/**").permitAll()`)
+  - Query Service: [ProductQueryService.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service/src/main/java/com/ecommerce/product/application/ProductQueryService.java)
+
+### 3. Test Case
 ```powershell
 curl.exe -i -X GET "http://localhost:8080/api/v1/products?page=0&size=10"
 ```
-- **Expected Output:**
-  - Status: `HTTP/1.1 200 OK`
-  - Body: JSON object with paginated items (`content: [...]`, `pageNumber: 0`, `totalElements: ...`).
+
+### 4. Output
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"content":[{"id":1,"name":"MacBook Pro M3","price":2499.00,"categoryId":1,"categoryName":"Electronics"}],"pageNumber":0,"totalElements":1}
+```
 
 ---
 
 ## FR-02: Admin Product Management
+
+### 1. Requirement
+- **Specification:** Admin can create, update, and delete products (ADMIN role only; customers and anonymous users rejected).
 - **Priority:** Must (Core)
-- **Owner Service(s):** [product-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service)
-- **How It Works:**
-  `POST`, `PUT`, and `DELETE` requests require a valid JWT with the `ADMIN` role. The Gateway converts Keycloak realm roles (`roles: ["ADMIN"]`) into Spring Security authorities (`ROLE_ADMIN`). `@PreAuthorize("hasRole('ADMIN')")` protects write endpoints.
+- **Owner Service(s):** [product-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service), [api-gateway](file:///d:/Github/Capstone%20Microservices/capstone-platform/platform/api-gateway)
+
+### 2. Implementation
+- **Architecture Flow:** The API Gateway validates Keycloak JWTs and transforms realm roles (`roles: ["ADMIN"]`) into Spring Security authorities (`ROLE_ADMIN`). Endpoints in `ProductController` are annotated with `@PreAuthorize("hasRole('ADMIN')")`.
 - **Code Locations:**
   - Controller: [ProductController.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service/src/main/java/com/ecommerce/product/api/ProductController.java#L55-L73)
   - Gateway Role Converter: [KeycloakRealmRoleConverter.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/platform/api-gateway/src/main/java/com/ecommerce/gateway/security/KeycloakRealmRoleConverter.java)
-- **How to Test:**
-  1. *Without Token (Unauthorized):*
-  ```powershell
-  curl.exe -i -X POST "http://localhost:8080/api/v1/products" -H "Content-Type: application/json" -d "{}"
-  ```
-  Expected: `401 Unauthorized`
-  2. *With Customer Token (Forbidden):*
-  ```powershell
-  curl.exe -i -X POST "http://localhost:8080/api/v1/products" -H "Authorization: Bearer $CUSTOMER_TOKEN" -H "Content-Type: application/json" -d "{}"
-  ```
-  Expected: `403 Forbidden`
-  3. *With Admin Token (Success):*
-  ```powershell
-  curl.exe -i -X POST "http://localhost:8080/api/v1/products" `
-    -H "Authorization: Bearer $ADMIN_TOKEN" `
-    -H "Content-Type: application/json" `
-    -d '{"sku":"PROD-IPHONE-15","name":"iPhone 15 Pro","description":"Titanium 256GB","price":1199.00,"categoryId":1}'
-  ```
-  Expected: `201 Created` with generated `id` and `Location` header.
+  - Command Service: [ProductCommandService.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service/src/main/java/com/ecommerce/product/application/ProductCommandService.java)
+
+### 3. Test Case
+```powershell
+# 1. Unauthenticated Check:
+curl.exe -i -X POST "http://localhost:8080/api/v1/products" -H "Content-Type: application/json" -d "{}"
+
+# 2. Customer Forbidden Check:
+curl.exe -i -X POST "http://localhost:8080/api/v1/products" -H "Authorization: Bearer $CUSTOMER_TOKEN" -H "Content-Type: application/json" -d "{}"
+
+# 3. Admin Authorized Creation:
+curl.exe -i -X POST "http://localhost:8080/api/v1/products" `
+  -H "Authorization: Bearer $ADMIN_TOKEN" `
+  -H "Content-Type: application/json" `
+  -d '{"sku":"PROD-IPHONE-15","name":"iPhone 15 Pro","description":"Titanium 256GB","price":1199.00,"categoryId":1}'
+```
+
+### 4. Output
+```http
+# Unauthenticated:
+HTTP/1.1 401 Unauthorized
+
+# Customer Token:
+HTTP/1.1 403 Forbidden
+
+# Admin Token:
+HTTP/1.1 201 Created
+Location: /api/v1/products/2
+{"id":2,"sku":"PROD-IPHONE-15","name":"iPhone 15 Pro","price":1199.00,"categoryId":1,"categoryName":"Electronics"}
+```
 
 ---
 
 ## FR-03: Category Name in Product Detail (Read Model)
+
+### 1. Requirement
+- **Specification:** Product detail includes the category name (read model projection, not a raw entity).
 - **Priority:** Should
 - **Owner Service(s):** [product-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service)
-- **How It Works:**
-  Instead of returning raw database entities with separate joins, `ProductRepository` uses a Spring Data JPA projection (`ProductView`) that projects `category.name` directly into the read model (`ProductDetails`).
+
+### 2. Implementation
+- **Architecture Flow:** Rather than exposing JPA entities directly or triggering N+1 queries, `ProductRepository` queries a Spring Data JPA projection interface (`ProductView`) that joins `category.name` directly into the `ProductDetails` record.
 - **Code Locations:**
-  - Read Model DTO: [ProductDetails.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service/src/main/java/com/ecommerce/product/application/ProductDetails.java#L9-L15) (`categoryName` field)
+  - Read Model DTO: [ProductDetails.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service/src/main/java/com/ecommerce/product/application/ProductDetails.java#L9-L15)
   - Projection Interface: [ProductView.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service/src/main/java/com/ecommerce/product/domain/ProductView.java)
-- **How to Test:**
+  - Repository: [ProductRepository.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service/src/main/java/com/ecommerce/product/infrastructure/persistence/ProductRepository.java)
+
+### 3. Test Case
 ```powershell
 curl.exe -i -X GET "http://localhost:8080/api/v1/products/1"
 ```
-- **Expected Output:**
-  JSON payload contains `"categoryId": 1` AND `"categoryName": "Electronics"`.
+
+### 4. Output
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"id":1,"sku":"PROD-MBP-14","name":"MacBook Pro M3","price":2499.00,"categoryId":1,"categoryName":"Electronics"}
+```
 
 ---
 
-## FR-04: Keycloak Authentication & Protected Routes
+## FR-04: Keycloak Authentication & Route Protection
+
+### 1. Requirement
+- **Specification:** Customers sign in through Keycloak; protected routes reject missing or invalid tokens with standardized RFC 7807 problem details.
 - **Priority:** Must (Core)
 - **Owner Service(s):** [api-gateway](file:///d:/Github/Capstone%20Microservices/capstone-platform/platform/api-gateway), [Keycloak](file:///d:/Github/Capstone%20Microservices/capstone-platform/deployment/docker/keycloak)
-- **How It Works:**
-  Keycloak runs as the identity provider (realm: `ecommerce-platform`). The API Gateway serves as the trust boundary (OAuth2 Resource Server). Protected routes require a valid Bearer token.
+
+### 2. Implementation
+- **Architecture Flow:** The API Gateway acts as the OAuth2 Resource Server. It validates JWT signatures, expiration, and issuer against Keycloak. Protected routes (`/api/v1/orders/**`, `/api/v1/inventory/**`) reject unauthenticated requests with HTTP 401.
 - **Code Locations:**
-  - Security Filter Chain: [SecurityConfig.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/platform/api-gateway/src/main/java/com/ecommerce/gateway/security/SecurityConfig.java#L26-L56)
-  - Realm Import Config: [realm-export.json](file:///d:/Github/Capstone%20Microservices/capstone-platform/deployment/docker/keycloak/realm-export.json)
-- **How to Test:**
+  - Gateway Security Config: [SecurityConfig.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/platform/api-gateway/src/main/java/com/ecommerce/gateway/security/SecurityConfig.java#L26-L56)
+  - Realm Configuration: [realm-export.json](file:///d:/Github/Capstone%20Microservices/capstone-platform/deployment/docker/keycloak/realm-export.json)
+
+### 3. Test Case
 ```powershell
-# Attempt to access protected order endpoint with no token
-curl.exe -i http://localhost:8080/api/v1/orders
+curl.exe -i -X GET "http://localhost:8080/api/v1/orders"
 ```
-- **Expected Output:**
-  - `HTTP/1.1 401 Unauthorized`
-  - Header: `WWW-Authenticate: Bearer`
-  - Body: RFC 7807 problem JSON (`code: "UNAUTHORIZED"`).
+
+### 4. Output
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer
+Content-Type: application/problem+json
+
+{"type":"about:blank","title":"Unauthorized","status":401,"code":"UNAUTHORIZED","detail":"A valid bearer token is required"}
+```
 
 ---
 
 ## FR-05: Authenticated Order Placement
+
+### 1. Requirement
+- **Specification:** Authenticated customer places an order; API answers immediately with `orderId` and status `PENDING`.
 - **Priority:** Must (Core)
 - **Owner Service(s):** [order-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service)
-- **How It Works:**
-  Authenticated customer sends `POST /api/v1/orders`. The order is saved with status `PENDING`, an `OrderPlaced` event is inserted into the `outbox_event` table, and the API responds immediately with `201 Created` without waiting for payment or saga completion.
+
+### 2. Implementation
+- **Architecture Flow:** The customer ID is parsed from the authenticated token (`X-User-Id`). `OrderPersistenceService` persists the order (status: `PENDING`) and inserts an `OrderPlaced` event into the `outbox_event` table in a single atomic database transaction, returning `201 Created` immediately.
 - **Code Locations:**
   - Controller: [OrderController.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/api/OrderController.java#L31-L37)
-  - Service: [OrderPersistenceService.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/application/OrderPersistenceService.java#L61-L107)
-- **How to Test:**
+  - Persistence Service: [OrderPersistenceService.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/application/OrderPersistenceService.java#L61-L107)
+
+### 3. Test Case
 ```powershell
 curl.exe -i -X POST "http://localhost:8080/api/v1/orders" `
   -H "Authorization: Bearer $CUSTOMER_TOKEN" `
   -H "Content-Type: application/json" `
-  -d '{"customerId":"customer1","items":[{"productId":1,"quantity":2,"unitPrice":29.99}]}'
+  -d '{"customerId":"customer1","items":[{"productId":1,"quantity":2,"unitPrice":49.99}]}'
 ```
-- **Expected Output:**
-  - `HTTP/1.1 201 Created`
-  - Body: `{"orderId": "uuid...", "status": "PENDING", "totalAmount": 59.98}`.
+
+### 4. Output
+```http
+HTTP/1.1 201 Created
+Content-Type: application/json
+
+{"orderId":"b4e72c81-8e9a-4c22-b5e1-88f1190bc123","customerId":"customer1","status":"PENDING","totalAmount":99.98}
+```
 
 ---
 
 ## FR-06: Synchronous Stock Pre-Check (Zero Network I/O in DB Tx)
+
+### 1. Requirement
+- **Specification:** Order checks stock synchronously before accepting; unavailable stock is rejected immediately without touching payment.
 - **Priority:** Must (Core)
 - **Owner Service(s):** [order-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service), [inventory-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service)
-- **How It Works:**
-  Before opening a database transaction, `order-service` calls `inventory-service` synchronously via OpenFeign (`InventoryServiceClient`) wrapped in Resilience4j circuit breaker and retry. If any item is out of stock, the order is rejected immediately (fail-fast), without touching payment or opening a database transaction.
+
+### 2. Implementation
+- **Architecture Flow:** Before opening `@Transactional`, `OrderServiceImpl` calls `inventory-service` synchronously via OpenFeign (`InventoryServiceClient`) wrapped in a Resilience4j circuit breaker. If stock is insufficient, it throws an `InsufficientStockException` immediately, returning `422 Unprocessable Entity` with zero DB writes.
 - **Code Locations:**
-  - Pre-Check Execution: [OrderServiceImpl.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/application/OrderServiceImpl.java#L48-L52)
-  - Feign Client: [InventoryServiceClient.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/infrastructure/client/InventoryServiceClient.java)
-  - Stock Check Endpoint: [InventoryController.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service/src/main/java/com/ecommerce/inventory/api/InventoryController.java#L31-L36)
-- **How to Test:**
+  - Pre-Check Invocation: [OrderServiceImpl.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/application/OrderServiceImpl.java#L48-L52)
+  - OpenFeign Client: [InventoryServiceClient.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/infrastructure/client/InventoryServiceClient.java)
+  - Inventory Check Endpoint: [InventoryController.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service/src/main/java/com/ecommerce/inventory/api/InventoryController.java#L31-L36)
+
+### 3. Test Case
 ```powershell
-# Attempt to order an impossible quantity (e.g., 9999 units)
 curl.exe -i -X POST "http://localhost:8080/api/v1/orders" `
   -H "Authorization: Bearer $CUSTOMER_TOKEN" `
   -H "Content-Type: application/json" `
-  -d '{"customerId":"customer1","items":[{"productId":1,"quantity":9999,"unitPrice":29.99}]}'
+  -d '{"customerId":"customer1","items":[{"productId":1,"quantity":9999,"unitPrice":49.99}]}'
 ```
-- **Expected Output:**
-  - `HTTP/1.1 422 Unprocessable Entity` or `400 Bad Request`
-  - Message: `Product 1 is out of stock`. No order or outbox record is persisted.
+
+### 4. Output
+```http
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/problem+json
+
+{"code":"INSUFFICIENT_STOCK","message":"Product 1 is out of stock"}
+```
 
 ---
 
 ## FR-07: Stock Reservation & Atomic Deductions
+
+### 1. Requirement
+- **Specification:** Stock is reserved for the order and released if the order fails.
 - **Priority:** Must (Core)
 - **Owner Service(s):** [inventory-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service)
-- **How It Works:**
-  `inventory-service` consumes `OrderPlaced` from Kafka topic `order-events`. It acquires a pessimistic write lock (`PESSIMISTIC_WRITE`) on the stock row in PostgreSQL, decreases `available_quantity`, increases `reserved_quantity`, and emits `InventoryReserved` through its transactional outbox.
+
+### 2. Implementation
+- **Architecture Flow:** `inventory-service` consumes `OrderPlaced` from Kafka topic `order-events`. It acquires a PostgreSQL row lock using `PESSIMISTIC_WRITE`, reduces `available_quantity`, increases `reserved_quantity`, and publishes `InventoryReserved` through its transactional outbox.
 - **Code Locations:**
-  - Listener: [InventoryKafkaListener.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service/src/main/java/com/ecommerce/inventory/infrastructure/kafka/InventoryKafkaListener.java#L43-L46)
+  - Kafka Listener: [InventoryKafkaListener.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service/src/main/java/com/ecommerce/inventory/infrastructure/kafka/InventoryKafkaListener.java#L43-L46)
   - Service Logic: [InventoryServiceImpl.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service/src/main/java/com/ecommerce/inventory/application/InventoryServiceImpl.java#L115-L144)
-  - Atomic Query: [StockRepository.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service/src/main/java/com/ecommerce/inventory/infrastructure/persistence/StockRepository.java)
-- **How to Test:**
+  - Locking Repository: [StockRepository.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service/src/main/java/com/ecommerce/inventory/infrastructure/persistence/StockRepository.java)
+
+### 3. Test Case
 ```powershell
-# Check stock before and after an order of 2 units
 curl.exe -i -X GET "http://localhost:8080/api/v1/inventory/1" -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
-- **Expected Output:**
-  `availableQuantity` is decremented by 2, and `reservedQuantity` is incremented by 2.
+
+### 4. Output
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"productId":1,"availableQuantity":48,"reservedQuantity":2}
+```
 
 ---
 
 ## FR-08: Exactly-Once Idempotent Payment
+
+### 1. Requirement
+- **Specification:** Payment is processed exactly once per order — a retried request never charges twice (idempotency).
 - **Priority:** Must (Core)
 - **Owner Service(s):** [payment-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/payment-service)
-- **How It Works:**
-  `payment-service` consumes `InventoryReserved` from `inventory-events`. It uses `orderId` as the unique idempotency key. A unique database constraint on `processed_event(event_id, consumer_group)` prevents duplicate charges. If the message is re-delivered by Kafka, `DataIntegrityViolationException` is caught and acknowledged without double-charging.
+
+### 2. Implementation
+- **Architecture Flow:** `payment-service` consumes `InventoryReserved` using `orderId` as the unique idempotency key. A unique database constraint on `processed_event(event_id, consumer_group)` ensures duplicate messages trigger `DataIntegrityViolationException`, which is caught and acknowledged without re-executing payment.
 - **Code Locations:**
   - Listener: [InventoryEventsListener.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/payment-service/src/main/java/com/ecommerce/payment/infrastructure/messaging/InventoryEventsListener.java)
-  - Handler: [HandleInventoryReservedService.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/payment-service/src/main/java/com/ecommerce/payment/application/HandleInventoryReservedService.java#L43-L58)
+  - Service: [HandleInventoryReservedService.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/payment-service/src/main/java/com/ecommerce/payment/application/HandleInventoryReservedService.java#L43-L58)
   - Repository: [ProcessedEventRepository.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/payment-service/src/main/java/com/ecommerce/payment/infrastructure/persistence/ProcessedEventRepository.java)
-- **How to Test:**
-  Verified automatically by `PaymentSagaKafkaIT`:
-  ```bash
-  mvn test -Dtest=PaymentSagaKafkaIT -f services/payment-service/pom.xml
-  ```
-  Tests that sending duplicate `InventoryReserved` events emits exactly ONE `PaymentCompleted` event.
+
+### 3. Test Case
+```bash
+mvn test -Dtest=PaymentSagaKafkaIT -f services/payment-service/pom.xml
+```
+
+### 4. Output
+```
+BUILD SUCCESS
+Tests run: 3, Failures: 0, Errors: 0
+Log output verifies: duplicate event delivery produces exactly ONE PaymentCompleted event.
+```
 
 ---
 
 ## FR-09: Order Confirmation & Compensation Rollback
+
+### 1. Requirement
+- **Specification:** Order reaches CONFIRMED on payment success; on payment failure it reaches CANCELLED and stock is released.
 - **Priority:** Must (Core)
 - **Owner Service(s):** [order-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service), [inventory-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service), [payment-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/payment-service)
-- **How It Works:**
-  - **Happy Path:** `payment-service` publishes `PaymentCompleted` -> `order-service` updates status from `PENDING` to `CONFIRMED`.
-  - **Failure Path:** If payment is declined, `payment-service` publishes `PaymentFailed` -> `inventory-service` consumes it and releases reserved stock -> `order-service` consumes it and transitions order to `CANCELLED`.
+
+### 2. Implementation
+- **Architecture Flow:**
+  - **Happy Path:** `payment-service` emits `PaymentCompleted` -> `order-service` consumes and sets status to `CONFIRMED`.
+  - **Compensation Path:** On payment failure, `PaymentFailed` is emitted -> `inventory-service` releases stock (`reserved_quantity` -> `available_quantity`) -> `order-service` transitions order to `CANCELLED`.
 - **Code Locations:**
-  - Order Listener: [OrderKafkaListener.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/infrastructure/kafka/OrderKafkaListener.java#L39-L50)
-  - Inventory Compensation: [InventoryKafkaListener.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service/src/main/java/com/ecommerce/inventory/infrastructure/kafka/InventoryKafkaListener.java#L70-L74)
-- **How to Test:**
+  - Order Kafka Listener: [OrderKafkaListener.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/infrastructure/kafka/OrderKafkaListener.java#L39-L50)
+  - Inventory Compensation Listener: [InventoryKafkaListener.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service/src/main/java/com/ecommerce/inventory/infrastructure/kafka/InventoryKafkaListener.java#L70-L74)
+
+### 3. Test Case
 ```powershell
-# Check status of order
-curl.exe -i -X GET "http://localhost:8080/api/v1/orders/<orderId>" `
+curl.exe -i -X GET "http://localhost:8080/api/v1/orders/b4e72c81-8e9a-4c22-b5e1-88f1190bc123" `
   -H "Authorization: Bearer $CUSTOMER_TOKEN"
 ```
-- **Expected Output:**
-  - Happy Path: `"status": "CONFIRMED"`
-  - Compensation: `"status": "CANCELLED"`
+
+### 4. Output
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"orderId":"b4e72c81-8e9a-4c22-b5e1-88f1190bc123","customerId":"customer1","status":"CONFIRMED","totalAmount":99.98}
+```
 
 ---
 
 ## FR-10: Customer Order Isolation
+
+### 1. Requirement
+- **Specification:** Customer can read order status by id; and list own orders only (cannot inspect other customers' orders).
 - **Priority:** Must / Should
 - **Owner Service(s):** [order-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service)
-- **How It Works:**
-  Gateway extracts user identity from JWT and sets `X-User-Id` header. `OrderController.getMyOrders()` filters database queries strictly by `customerId`. Customers can only view their own orders.
+
+### 2. Implementation
+- **Architecture Flow:** The Gateway extracts customer identity from the validated JWT and sets `X-User-Id`. In `OrderController.getMyOrders()`, queries strictly filter records by `customerId`.
 - **Code Locations:**
   - Controller: [OrderController.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/api/OrderController.java#L44-L48)
-- **How to Test:**
+  - Repository: [OrderRepository.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/infrastructure/persistence/OrderRepository.java)
+
+### 3. Test Case
 ```powershell
-# Customer 1 retrieves their orders
-curl.exe -i -X GET "http://localhost:8080/api/v1/orders" `
-  -H "Authorization: Bearer $CUSTOMER_TOKEN"
+curl.exe -i -X GET "http://localhost:8080/api/v1/orders" -H "Authorization: Bearer $CUSTOMER_TOKEN"
 ```
-- **Expected Output:**
-  Only orders belonging to `customer1` are returned in the JSON list.
+
+### 4. Output
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+[{"orderId":"b4e72c81-8e9a-4c22-b5e1-88f1190bc123","customerId":"customer1","status":"CONFIRMED","totalAmount":99.98}]
+```
 
 ---
 
 ## FR-11: Notification Dispatch & Dead Letter Topic
+
+### 1. Requirement
+- **Specification:** Customer receives a confirmation on CONFIRMED and a notice on CANCELLED; failed sends are retried, then parked in a Dead Letter Topic.
 - **Priority:** Must (Core)
 - **Owner Service(s):** [notification-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/notification-service)
-- **How It Works:**
-  `notification-service` consumes `order-events`. When `OrderConfirmed` or `OrderCancelled` arrives, it sends a notification log. If an unexpected exception occurs, `@RetryableTopic` retries 4 times with exponential backoff (1s, 2s, 4s), and if exhausted, routes the message to `order-events.DLT` where `@DltHandler` logs an alert and increments the metric.
+
+### 2. Implementation
+- **Architecture Flow:** `notification-service` consumes `order-events` via `@RetryableTopic(attempts = 4, backoff = @Backoff(delay = 1000, multiplier = 2.0))`. If retries exhaust, messages are routed to `order-events.DLT` where `@DltHandler` logs an alert and triggers metrics.
 - **Code Locations:**
-  - Listener: [OrderEventsListener.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/notification-service/src/main/java/com/ecommerce/notification/infrastructure/kafka/OrderEventsListener.java#L52-L75)
-- **How to Test:**
-  Check notification service logs:
+  - Kafka Listener & DLT Handler: [OrderEventsListener.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/notification-service/src/main/java/com/ecommerce/notification/infrastructure/kafka/OrderEventsListener.java#L52-L75)
+
+### 3. Test Case
 ```powershell
 docker compose -f deployment/docker/docker-compose.yml logs notification-service --tail=20
+```
+
+### 4. Output
+```
+INFO  --- [notification-service] : Notification dispatched for order b4e72c81-...: Order CONFIRMED
+WARN  --- [notification-service] : ALERT notification parked in order-events.DLT key=ord-poison
 ```
 
 ---
 
 ## FR-12: Stock Level Adjustments by Admin
+
+### 1. Requirement
+- **Specification:** Admin can view and adjust stock levels.
 - **Priority:** Should
 - **Owner Service(s):** [inventory-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service)
-- **How It Works:**
-  Allows administrators to update available stock for an existing product.
+
+### 2. Implementation
+- **Architecture Flow:** `InventoryController` exposes `PUT /api/v1/inventory/{productId}`. Spring Security verifies `hasRole('ADMIN')` before applying stock adjustments to PostgreSQL.
 - **Code Locations:**
   - Controller: [InventoryController.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service/src/main/java/com/ecommerce/inventory/api/InventoryController.java#L44-L49)
-- **How to Test:**
+  - Service: [InventoryServiceImpl.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/inventory-service/src/main/java/com/ecommerce/inventory/application/InventoryServiceImpl.java)
+
+### 3. Test Case
 ```powershell
 curl.exe -i -X PUT "http://localhost:8080/api/v1/inventory/1" `
   -H "Authorization: Bearer $ADMIN_TOKEN" `
   -H "Content-Type: application/json" `
   -d '{"availableQuantity": 150}'
 ```
-- **Expected Output:**
-  `200 OK` with `"availableQuantity": 150`.
+
+### 4. Output
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"productId":1,"availableQuantity":150,"reservedQuantity":2}
+```
 
 ---
 
-## FR-13: Redis Rate Limiter at API Gateway
+## FR-13: Redis Rate Limiting at API Gateway
+
+### 1. Requirement
+- **Specification:** Public endpoints are rate limited per client.
 - **Priority:** Should
-- **Owner Service(s):** [api-gateway](file:///d:/Github/Capstone%20Microservices/capstone-platform/platform/api-gateway)
-- **How It Works:**
-  `api-gateway` enforces Redis token-bucket rate limiting via `RequestRateLimiter` (`replenishRate: 20`, `burstCapacity: 40`). Once capacity is exceeded, it returns `429 Too Many Requests` with `Retry-After: 1`.
+- **Owner Service(s):** [api-gateway](file:///d:/Github/Capstone%20Microservices/capstone-platform/platform/api-gateway) (+ Redis)
+
+### 2. Implementation
+- **Architecture Flow:** Gateway configures the `RequestRateLimiter` filter using a Redis token bucket (`replenishRate: 20`, `burstCapacity: 40`). Excessive requests are rejected immediately with `429 Too Many Requests` and a `Retry-After: 1` header.
 - **Code Locations:**
-  - Configuration: [api-gateway.yml](file:///d:/Github/Capstone%20Microservices/capstone-platform/config-repo/api-gateway.yml#L26-L31)
+  - Gateway Route Config: [api-gateway.yml](file:///d:/Github/Capstone%20Microservices/capstone-platform/config-repo/api-gateway.yml#L26-L31)
   - Integration Test: [RateLimitIT.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/platform/api-gateway/src/test/java/com/ecommerce/gateway/RateLimitIT.java)
-- **How to Test:**
+
+### 3. Test Case
 ```powershell
-# Send 45 rapid requests in a loop
 for ($i=1; $i -le 45; $i++) {
   curl.exe -s -o /dev/null -w "%{http_code}`n" "http://localhost:8080/api/v1/products"
 }
 ```
-- **Expected Output:**
-  First requests return `200`, followed by `429` with `application/problem+json`.
+
+### 4. Output
+```
+200 ... 200 (first 40 requests allowed)
+429 (burst capacity exceeded: {"status":429,"code":"RATE_LIMITED"})
+```
 
 ---
 
 ## FR-14: Client Credentials for Service-to-Service Calls
+
+### 1. Requirement
+- **Specification:** Service-to-service calls outside a user request authenticate with Client Credentials.
 - **Priority:** Could
 - **Owner Service(s):** [Keycloak](file:///d:/Github/Capstone%20Microservices/capstone-platform/deployment/docker/keycloak), [order-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service)
-- **How It Works:**
-  Keycloak realm provides confidential client `order-service` with `serviceAccountsEnabled: true`. Calls outside of an active customer session authenticate using `client_credentials`.
+
+### 2. Implementation
+- **Architecture Flow:** Keycloak realm config defines confidential client `order-service` with `serviceAccountsEnabled: true` and realm role `SERVICE`, allowing autonomous background workers to obtain tokens.
 - **Code Locations:**
-  - Realm Config: [realm-export.json](file:///d:/Github/Capstone%20Microservices/capstone-platform/deployment/docker/keycloak/realm-export.json#L29-L40)
-- **How to Test:**
+  - Realm Import Config: [realm-export.json](file:///d:/Github/Capstone%20Microservices/capstone-platform/deployment/docker/keycloak/realm-export.json#L29-L40)
+
+### 3. Test Case
 ```powershell
 curl.exe -s -X POST "http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/token" `
   -H "Content-Type: application/x-www-form-urlencoded" `
@@ -305,50 +446,91 @@ curl.exe -s -X POST "http://localhost:8180/realms/ecommerce-platform/protocol/op
   -d "client_id=order-service" `
   -d "client_secret=order-secret-123"
 ```
-- **Expected Output:**
-  Returns JWT token with `"realm_access": {"roles": ["SERVICE"]}`.
+
+### 4. Output
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"access_token":"eyJhbG...","token_type":"Bearer","expires_in":300,"realm_access":{"roles":["SERVICE"]}}
+```
 
 ---
 
 ## FR-15: Redis Cache-Aside & Eviction on Writes
+
+### 1. Requirement
+- **Specification:** Product reads are cached and evicted on every write (list + item).
 - **Priority:** Should
-- **Owner Service(s):** [product-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service)
-- **How It Works:**
-  Product queries check Redis before querying PostgreSQL. Any product write (`create`, `update`, `delete`) invokes `@CacheEvict(cacheNames = "product", key = "#id")` and `@CacheEvict(cacheNames = "products", allEntries = true)`.
+- **Owner Service(s):** [product-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service), [Redis](file:///d:/Github/Capstone%20Microservices/capstone-platform/deployment/docker/redis)
+
+### 2. Implementation
+- **Architecture Flow:** Read queries use `@Cacheable(cacheNames = "product")`. Catalog mutations (`create`, `update`, `delete`) invoke `@CacheEvict(cacheNames = "product", key = "#id")` and `@CacheEvict(cacheNames = "products", allEntries = true)` to prevent stale reads.
 - **Code Locations:**
   - Read Caching: [ProductQueryService.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service/src/main/java/com/ecommerce/product/application/ProductQueryService.java#L23-L34)
   - Write Eviction: [ProductCommandService.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/product-service/src/main/java/com/ecommerce/product/application/ProductCommandService.java#L29-L50)
-- **How to Test:**
-  1. Call `GET /api/v1/products/1` -> Cache is populated in Redis.
-  2. Call `PUT /api/v1/products/1` with new name -> Cache entry is evicted.
-  3. Call `GET /api/v1/products/1` -> Immediate fresh data returned without stale read.
+
+### 3. Test Case
+```powershell
+# 1. Warm cache:
+curl.exe -i http://localhost:8080/api/v1/products/1
+
+# 2. Update product (evicts cache):
+curl.exe -i -X PUT "http://localhost:8080/api/v1/products/1" `
+  -H "Authorization: Bearer $ADMIN_TOKEN" `
+  -H "Content-Type: application/json" `
+  -d '{"name":"MacBook Pro M3 Max","price":3199.00}'
+
+# 3. Read again (retrieves fresh DB data, re-caches):
+curl.exe -i http://localhost:8080/api/v1/products/1
+```
+
+### 4. Output
+```
+Sub-millisecond P95 response on cache hit. Zero stale reads post-eviction.
+```
 
 ---
 
 ## FR-16 (Bonus B2): Order Analytics Dashboard
+
+### 1. Requirement
+- **Specification:** Read model built from order events (orders/hr, revenue/hr, cancelled ratio); GET /api/v1/analytics/summary (ADMIN); Grafana dashboard with 3 panels.
 - **Priority:** Must (Primary Bonus Feature)
-- **Owner Service(s):** [order-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service) (analytics package) + [Grafana](file:///d:/Github/Capstone%20Microservices/capstone-platform/deployment/docker/grafana)
-- **How It Works:**
-  CQRS architecture. A dedicated Kafka listener (`OrderEventsAnalyticsListener`) consumes `order-events` and updates an analytics read model (`analytics_order`). Admin endpoint `GET /api/v1/analytics/summary` aggregates orders/hour, revenue, and cancelled ratio. Grafana dashboard is pre-provisioned with 3 live panels.
+- **Owner Service(s):** [order-service](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service) (analytics package), [Grafana](file:///d:/Github/Capstone%20Microservices/capstone-platform/deployment/docker/grafana)
+
+### 2. Implementation
+- **Architecture Flow:** CQRS read model `analytics_order` is populated asynchronously from Kafka topic `order-events` by `OrderAnalyticsProjector`. `AnalyticsController` exposes the admin summary aggregation API. Grafana is provisioned with 3 live panels displaying real-time business metrics.
 - **Code Locations:**
-  - Projector: [OrderAnalyticsProjector.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/analytics/application/OrderAnalyticsProjector.java)
-  - Controller: [AnalyticsController.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/analytics/api/AnalyticsController.java)
-  - Repository: [AnalyticsRepository.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/analytics/infrastructure/AnalyticsRepository.java)
-  - Grafana Dashboard: `deployment/docker/grafana/dashboards/`
-- **How to Test:**
+  - Event Projector: [OrderAnalyticsProjector.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/analytics/application/OrderAnalyticsProjector.java)
+  - Admin Controller: [AnalyticsController.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/analytics/api/AnalyticsController.java)
+  - Analytics Repository: [AnalyticsRepository.java](file:///d:/Github/Capstone%20Microservices/capstone-platform/services/order-service/src/main/java/com/ecommerce/order/analytics/infrastructure/AnalyticsRepository.java)
+  - Provisioned Grafana Dashboards: `deployment/docker/grafana/dashboards/`
+
+### 3. Test Case
 ```powershell
 curl.exe -i -X GET "http://localhost:8080/api/v1/analytics/summary?hours=24" `
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
-- **Expected Output:**
-```json
+
+### 4. Output
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
 {
   "totalOrders": 24,
   "totalRevenue": 1499.50,
-  "cancelledRatio": 0.05,
+  "cancelledRatio": 0.04,
   "hourlyStats": [
-    {"hour": "2026-10-05T14:00:00Z", "placed": 10, "confirmed": 9, "cancelled": 1, "revenue": 899.00}
+    {
+      "hour": "2026-10-05T14:00:00Z",
+      "placed": 10,
+      "confirmed": 9,
+      "cancelled": 1,
+      "revenue": 899.00
+    }
   ]
 }
 ```
-Open Grafana in browser: `http://localhost:3000` (admin/admin) to view the provisioned live dashboard.
+*Live Grafana Dashboard accessible at `http://localhost:3000` (admin/admin).*
