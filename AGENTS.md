@@ -1,44 +1,19 @@
-# Antigravity Agent Directives: Member B Context
+# Agent Directives: Capstone Platform
 
-## Active Persona: Member B
-The developer in this workspace is acting strictly as **Member B** for the Capstone Microservices project.
-All assistance, code generation, refactoring, and guidance must strictly obey the boundaries established in `docs/TEAM-GUIDE.md` and `docs/MEMBER-B-GUIDELINES.md`.
+## Active Persona: Member C, finishing the whole project
+The developer in this workspace is **Member C** (`docs/TEAM-GUIDE.md` §1). For the final integration
+pass before G4 the agent may work on **every** file in the repository, including Member A's and
+Member B's, so that the open items in `docs/FINAL-REPORT.md` §6 get closed.
+
+Ownership still matters for review: a change to another member's files goes through a PR that the
+owner reviews (`.github/CODEOWNERS`). Keep each change minimal and say in the commit which open item
+it closes.
 
 ---
 
-## Strict Behavioral Rules for the AI Assistant
+## Rules that hold for every change
 
-### 1. Absolute File Boundary Protection
-- **NEVER** edit, create, refactor, or delete files belonging to **Member A** or **Member C**:
-  - ❌ `platform/api-gateway/**` (Member A)
-  - ❌ `services/product-service/**` (Member A)
-  - ❌ `services/notification-service/**` (Member A)
-  - ❌ `services/payment-service/**` (Member C)
-  - ❌ `services/order-service/.../analytics/**` (Member C)
-  - ❌ `*/Dockerfile` (all 8 Dockerfiles are Member C)
-  - ❌ `deployment/**` (Docker, Kubernetes, Helm, ArgoCD are Members C & A)
-  - ❌ `.github/**` (Member C & A)
-  - ❌ `k6/**` (Member A)
-  - ❌ `scripts/create-k8s-secrets.sh` (Member C)
-
-### 2. Permitted Working Scope for Member B
-- Assist **ONLY** on files and tasks owned by Member B:
-  - ✅ `services/inventory-service/**`
-  - ✅ `services/order-service/**` (excluding `analytics/`)
-  - ✅ `platform/config-server/**`
-  - ✅ `platform/eureka-server/**`
-  - ✅ `config-repo/inventory-service.yml`
-  - ✅ `config-repo/eureka-server.yml`
-  - ✅ `config-repo/application.yml` (ONLY inside `# --- tracing/logging (B) ---` and `# --- kafka (B) ---`)
-  - ✅ `config-repo/order-service.yml` (ONLY inside `# --- order (B) ---`)
-  - ✅ `scripts/verify-l0.sh`
-  - ✅ `docs/BACKLOG.md`
-  - ✅ `docs/FINAL-REPORT.md`
-  - ✅ `docs/adr/ADD-TEAM.md` (Sections 3, 5, 6)
-  - ✅ `README.md` (ONLY under `## Run locally`, `## Orders & Saga`, `## Observability`)
-
-### 3. Layered Package Architecture (Strict Enforcement)
-Whenever generating or structuring code for Member B's services (`order-service`, `inventory-service`):
+### 1. Layered package architecture
 ```
 src/main/java/com/ecommerce/<service>/
 ├── <Service>Application.java
@@ -52,13 +27,18 @@ src/main/resources/
 src/test/java/com/ecommerce/<service>/
 ```
 
-### 4. Database & Transaction Invariants
-- **Flyway version range for `order-service`**: Strictly `V1__` through `V49__`. Never `V50+` (reserved for Member C).
-- **Outbox Pattern**: Never call `kafkaTemplate.send()` inside `@Transactional`. Persist to `outbox_event` in the DB transaction and publish via `@Scheduled` poller.
-- **Traceparent**: Always preserve `traceparent` header in the outbox table to maintain distributed tracing (NFR-06).
-- **Zero Network I/O in DB Tx**: Always execute OpenFeign stock checks before opening `@Transactional`.
-- **Idempotency**: Use `processed_event` table and catch `DataIntegrityViolationException`.
+### 2. Database & transaction invariants
+- **Flyway in `order-service`**: `V1__`–`V49__` for orders (B), `V50__`+ for analytics (C). Never edit a merged migration.
+- **Outbox pattern**: never call `kafkaTemplate.send()` inside a business `@Transactional`. Persist to `outbox_event` and publish from the `@Scheduled` poller.
+- **Traceparent**: keep the `traceparent` column in every outbox table (NFR-06).
+- **No network I/O in a DB transaction**: Feign calls happen before the transaction opens.
+- **Idempotency**: `processed_event` tables plus `DataIntegrityViolationException`, never check-then-insert.
 
-### 5. Out of Scope Constraints
-- Stick 100% to the *Capstone Project Brief* and `docs/TEAM-GUIDE.md`.
-- No extra message brokers (no RabbitMQ), no extra databases (no Elasticsearch/MongoDB), and no event sourcing frameworks (no Axon).
+### 3. Shared files
+Edit `config-repo/application.yml`, `config-repo/order-service.yml`, `README.md` and `docs/adr/ADD-TEAM.md`
+inside the matching section marker or heading (`docs/TEAM-GUIDE.md` §1.2).
+
+### 4. Out of scope
+- Stick to the *Capstone Project Brief* and `docs/TEAM-GUIDE.md`.
+- No extra message brokers, no extra databases, no event-sourcing frameworks.
+- Never invent measurements, approvals or signatures: numbers come from a real run, approvals and signatures from the team.
