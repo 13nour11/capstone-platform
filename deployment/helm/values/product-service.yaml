@@ -6,14 +6,21 @@ containerPort: 8081
 service:
   port: 8081
 
+# Names must match the ${...} placeholders in config-repo/product-service.yml and application.yml.
+# product-service builds its JDBC URL from POSTGRES_HOST/POSTGRES_PORT rather than taking a whole
+# SPRING_DATASOURCE_URL, and it connects as its own user, not the superuser.
 env:
   CONFIG_SERVER_URL: http://config-server:8888
   EUREKA_URL: http://eureka-server:8761/eureka/
-  POSTGRES_HOST: postgres.infra
-  REDIS_HOST: redis.infra
+  POSTGRES_HOST: postgres.ecommerce
+  POSTGRES_PORT: "5432"
+  REDIS_HOST: redis.ecommerce
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka.ecommerce:9092
+  MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin.ecommerce:9411/api/v2/spans
   # Must equal the iss claim, i.e. Keycloak KC_HOSTNAME in the cluster (infra manifest)
   KEYCLOAK_ISSUER_URI: http://localhost:8180/realms/ecommerce-platform
-  KEYCLOAK_JWK_SET_URI: http://keycloak.infra:8180/realms/ecommerce-platform/protocol/openid-connect/certs
+  KEYCLOAK_JWK_SET_URI: http://keycloak.ecommerce:8180/realms/ecommerce-platform/protocol/openid-connect/certs
 
-# Keys: see scripts/create-k8s-secrets.sh
-secretName: product-service-secrets
+# Supplies PRODUCT_DB_PASSWORD, which has no default: the service will not start without it
+# (scripts/create-k8s-secrets.sh).
+secretName: product-db-credentials

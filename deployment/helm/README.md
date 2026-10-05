@@ -15,7 +15,7 @@ What every release gets:
 | Resources | requests 100m / 256Mi, limit 512Mi; the JVM uses 75 % of it (`MaxRAMPercentage` in the image) |
 | Metrics | `prometheus.io/*` pod annotations for `/actuator/prometheus` |
 
-Infrastructure is expected in namespace `infra` (`postgres.infra`, `kafka.infra:9092`, `redis.infra`, `keycloak.infra:8180`).
+Infrastructure is expected in namespace `infra` (`postgres.ecommerce`, `kafka.ecommerce:9092`, `redis.ecommerce`, `keycloak.ecommerce:8180`).
 `KEYCLOAK_ISSUER_URI` must equal Keycloak's `KC_HOSTNAME` in the cluster, otherwise every call is 401 (`iss` mismatch).
 
 ## Standalone install (without ArgoCD)

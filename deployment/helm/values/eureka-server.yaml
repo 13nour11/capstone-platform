@@ -5,3 +5,7 @@ image:
 containerPort: 8761
 service:
   port: 8761
+
+env:
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka.ecommerce:9092
+  MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin.ecommerce:9411/api/v2/spans

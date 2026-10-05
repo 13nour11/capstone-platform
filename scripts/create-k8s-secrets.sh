@@ -45,6 +45,11 @@ apply secret generic db-credentials \
   --from-literal=SPRING_DATASOURCE_USERNAME="${POSTGRES_USER:-postgres}" \
   --from-literal=SPRING_DATASOURCE_PASSWORD="$POSTGRES_PASSWORD"
 
+# product-service connects as its own user and reads PRODUCT_DB_PASSWORD, which has no default:
+# without this secret the pod starts and then fails on an unresolved placeholder.
+apply secret generic product-db-credentials \
+  --from-literal=PRODUCT_DB_PASSWORD="${PRODUCT_DB_PASSWORD:-$POSTGRES_PASSWORD}"
+
 apply secret generic keycloak-admin \
   --from-literal=KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN:-admin}" \
   --from-literal=KEYCLOAK_ADMIN_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD"

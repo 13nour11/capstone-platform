@@ -13,7 +13,11 @@ spec:
     path: deployment/kubernetes/infra
   destination:
     server: https://kubernetes.default.svc
-    namespace: infra
+    # Must match the namespace the manifests themselves declare. They all set `ecommerce`, and the
+    # only Namespace object created is `ecommerce`; a destination of `infra` made every sync fail
+    # with "Resource namespace does not match application destination" and left the DNS names in
+    # the Helm values (postgres.infra, kafka.infra, ...) pointing at a namespace that never existed.
+    namespace: ecommerce
   syncPolicy:
     automated:
       prune: true
