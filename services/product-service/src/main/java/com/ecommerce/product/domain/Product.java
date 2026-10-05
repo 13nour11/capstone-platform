@@ -37,10 +37,15 @@ public class Product {
     @Version
     private long version;
 
+    /** Bonus B3: the shop that owns this product. Set once, never changed. */
+    @Column(name = "tenant_id", nullable = false, updatable = false, length = 64)
+    private String tenantId;
+
     protected Product() {
     }
 
-    public Product(String name, String description, BigDecimal price, Category category) {
+    public Product(String name, String description, BigDecimal price, Category category, String tenantId) {
+        this.tenantId = tenantId;
         changeDetails(name, description, price, category);
     }
 
@@ -69,5 +74,9 @@ public class Product {
 
     public Category getCategory() {
         return category;
+    }
+
+    public String getTenantId() {
+        return tenantId;
     }
 }

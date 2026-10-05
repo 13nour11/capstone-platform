@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.AdditionalAnswers.returnsFirstArg;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -44,18 +45,19 @@ class ProductCommandServiceTest {
         given(categories.findById(3L)).willReturn(Optional.of(home));
         given(products.save(any(Product.class))).willAnswer(returnsFirstArg());
 
-        ProductDetails created = service.create(COMMAND);
+        ProductDetails created = service.create("tenant-a", COMMAND);
 
         assertThat(created.name()).isEqualTo("Desk Lamp");
         assertThat(created.price()).isEqualByComparingTo("29.99");
         assertThat(created.categoryName()).isEqualTo("Home");
+        verify(products).save(argThat(product -> "tenant-a".equals(product.getTenantId())));
     }
 
     @Test
     void shouldRejectCreate_whenCategoryDoesNotExist() {
         given(categories.findById(3L)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.create(COMMAND)).isInstanceOf(CategoryNotFoundException.class);
+        assertThatThrownBy(() -> service.create("tenant-a", COMMAND)).isInstanceOf(CategoryNotFoundException.class);
         verify(products, never()).save(any());
     }
 
@@ -63,11 +65,11 @@ class ProductCommandServiceTest {
     void shouldChangeAllDetails_whenUpdating() {
         Category books = mock(Category.class);
         given(books.getName()).willReturn("Books");
-        Product existing = new Product("Old name", null, BigDecimal.ONE, books);
-        given(products.findById(7L)).willReturn(Optional.of(existing));
+        Product existing = new Product("Old name", null, BigDecimal.ONE, books, "tenant-a");
+        given(products.findByIdAndTenantId(7L, "tenant-a")).willReturn(Optional.of(existing));
         given(categories.findById(3L)).willReturn(Optional.of(home));
 
-        ProductDetails updated = service.update(7L, COMMAND);
+        ProductDetails updated = service.update("tenant-a", 7L, COMMAND);
 
         assertThat(updated.name()).isEqualTo("Desk Lamp");
         assertThat(updated.description()).isEqualTo("LED");
@@ -77,26 +79,26 @@ class ProductCommandServiceTest {
 
     @Test
     void shouldThrowNotFound_whenUpdatingMissingProduct() {
-        given(products.findById(7L)).willReturn(Optional.empty());
+        given(products.findByIdAndTenantId(7L, "tenant-a")).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.update(7L, COMMAND)).isInstanceOf(ProductNotFoundException.class);
+        assertThatThrownBy(() -> service.update("tenant-a", 7L, COMMAND)).isInstanceOf(ProductNotFoundException.class);
     }
 
     @Test
     void shouldDeleteProduct_whenItExists() {
-        Product existing = new Product("Lamp", null, BigDecimal.ONE, home);
-        given(products.findById(7L)).willReturn(Optional.of(existing));
+        Product existing = new Product("Lamp", null, BigDecimal.ONE, home, "tenant-a");
+        given(products.findByIdAndTenantId(7L, "tenant-a")).willReturn(Optional.of(existing));
 
-        service.delete(7L);
+        service.delete("tenant-a", 7L);
 
         verify(products).delete(existing);
     }
 
     @Test
     void shouldThrowNotFound_whenDeletingMissingProduct() {
-        given(products.findById(7L)).willReturn(Optional.empty());
+        given(products.findByIdAndTenantId(7L, "tenant-a")).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.delete(7L)).isInstanceOf(ProductNotFoundException.class);
+        assertThatThrownBy(() -> service.delete("tenant-a", 7L)).isInstanceOf(ProductNotFoundException.class);
         verify(products, never()).delete(any());
     }
 }

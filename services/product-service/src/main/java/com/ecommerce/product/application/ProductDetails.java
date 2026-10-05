@@ -12,15 +12,18 @@ public record ProductDetails(
         String description,
         BigDecimal price,
         Long categoryId,
-        String categoryName) {
+        String categoryName,
+        Double averageRating,
+        Long ratingCount) {
 
     static ProductDetails from(ProductView view) {
         return new ProductDetails(view.getId(), view.getName(), view.getDescription(), view.getPrice(),
-                view.getCategoryId(), view.getCategoryName());
+                view.getCategoryId(), view.getCategoryName(), view.getAverageRating(), view.getRatingCount());
     }
 
+    /** Write responses: the rating summary belongs to the read model (GET), so it is left out here. */
     static ProductDetails from(Product product) {
         return new ProductDetails(product.getId(), product.getName(), product.getDescription(), product.getPrice(),
-                product.getCategory().getId(), product.getCategory().getName());
+                product.getCategory().getId(), product.getCategory().getName(), null, null);
     }
 }

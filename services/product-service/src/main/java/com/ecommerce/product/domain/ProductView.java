@@ -16,4 +16,10 @@ public interface ProductView {
     Long getCategoryId();
 
     String getCategoryName();
+
+    /** B1: average of all ratings, null while the product has none. */
+    Double getAverageRating();
+
+    /** B1: number of ratings. */
+    Long getRatingCount();
 }

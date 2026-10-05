@@ -34,41 +34,43 @@ public class ProductController {
 
     private final ProductQueryService queries;
     private final ProductCommandService commands;
+    private final TenantResolver tenants;
 
-    public ProductController(ProductQueryService queries, ProductCommandService commands) {
+    public ProductController(ProductQueryService queries, ProductCommandService commands, TenantResolver tenants) {
         this.queries = queries;
         this.commands = commands;
+        this.tenants = tenants;
     }
 
     @GetMapping
     public PageResult<ProductDetails> list(@RequestParam(defaultValue = "0") @Min(0) int page,
                                            @RequestParam(defaultValue = "20") @Min(1) @Max(50) int size,
                                            @RequestParam(defaultValue = "id,asc") String sort) {
-        return queries.list(PageRequest.of(page, size, SortParameter.parse(sort)));
+        return queries.list(tenants.current(), PageRequest.of(page, size, SortParameter.parse(sort)));
     }
 
     @GetMapping("/{id}")
     public ProductDetails get(@PathVariable long id) {
-        return queries.getById(id);
+        return queries.getById(tenants.current(), id);
     }
 
     @PostMapping
     @PreAuthorize(ADMIN_ONLY)
     public ResponseEntity<ProductDetails> create(@Valid @RequestBody ProductRequest request) {
-        ProductDetails created = commands.create(request.toCommand());
+        ProductDetails created = commands.create(tenants.current(), request.toCommand());
         return ResponseEntity.created(URI.create("/api/v1/products/" + created.id())).body(created);
     }
 
     @PutMapping("/{id}")
     @PreAuthorize(ADMIN_ONLY)
     public ProductDetails update(@PathVariable long id, @Valid @RequestBody ProductRequest request) {
-        return commands.update(id, request.toCommand());
+        return commands.update(tenants.current(), id, request.toCommand());
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize(ADMIN_ONLY)
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable long id) {
-        commands.delete(id);
+        commands.delete(tenants.current(), id);
     }
 }

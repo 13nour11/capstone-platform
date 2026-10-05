@@ -42,11 +42,11 @@ import com.ecommerce.product.infrastructure.security.KeycloakRealmRoleConverter;
 import com.ecommerce.product.infrastructure.security.SecurityConfig;
 
 @WebMvcTest(ProductController.class)
-@Import(SecurityConfig.class)
+@Import({SecurityConfig.class, TenantResolver.class})
 class ProductControllerTest {
 
     private static final ProductDetails MOUSE =
-            new ProductDetails(1L, "Wireless Mouse", "Ergonomic", new BigDecimal("24.99"), 1L, "Electronics");
+            new ProductDetails(1L, "Wireless Mouse", "Ergonomic", new BigDecimal("24.99"), 1L, "Electronics", 4.0, 3L);
     private static final String VALID_BODY = """
             {"name": "Wireless Mouse", "description": "Ergonomic", "price": 24.99, "categoryId": 1}""";
 
@@ -64,7 +64,7 @@ class ProductControllerTest {
 
     @Test
     void shouldReturnPage_whenAnonymousListsProducts() throws Exception {
-        given(queries.list(PageRequest.of(0, 20, Sort.by("id"))))
+        given(queries.list("tenant-a", PageRequest.of(0, 20, Sort.by("id"))))
                 .willReturn(new PageResult<>(List.of(MOUSE), 0, 20, 1, 1));
 
         mvc.perform(get("/api/v1/products"))
@@ -75,7 +75,7 @@ class ProductControllerTest {
 
     @Test
     void shouldPassWhitelistedSort_whenSortIsGiven() throws Exception {
-        given(queries.list(PageRequest.of(1, 5, Sort.by(Sort.Direction.DESC, "price"))))
+        given(queries.list("tenant-a", PageRequest.of(1, 5, Sort.by(Sort.Direction.DESC, "price"))))
                 .willReturn(new PageResult<>(List.of(), 1, 5, 0, 0));
 
         mvc.perform(get("/api/v1/products").param("page", "1").param("size", "5").param("sort", "price,desc"))
@@ -100,7 +100,7 @@ class ProductControllerTest {
 
     @Test
     void shouldReturnProductWithCategoryName_whenAnonymousGetsById() throws Exception {
-        given(queries.getById(1L)).willReturn(MOUSE);
+        given(queries.getById("tenant-a", 1L)).willReturn(MOUSE);
 
         mvc.perform(get("/api/v1/products/1"))
                 .andExpect(status().isOk())
@@ -110,7 +110,7 @@ class ProductControllerTest {
 
     @Test
     void shouldReturn404Problem_whenProductDoesNotExist() throws Exception {
-        given(queries.getById(99L)).willThrow(new ProductNotFoundException(99L));
+        given(queries.getById("tenant-a", 99L)).willThrow(new ProductNotFoundException(99L));
 
         mvc.perform(get("/api/v1/products/99"))
                 .andExpect(status().isNotFound())
@@ -140,7 +140,7 @@ class ProductControllerTest {
 
     @Test
     void shouldReturn201WithLocation_whenAdminCreatesProduct() throws Exception {
-        given(commands.create(any(ProductCommand.class))).willReturn(MOUSE);
+        given(commands.create(eq("tenant-a"), any(ProductCommand.class))).willReturn(MOUSE);
 
         mvc.perform(post("/api/v1/products").with(withRoles("ADMIN"))
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
@@ -148,7 +148,7 @@ class ProductControllerTest {
                 .andExpect(header().string("Location", "/api/v1/products/1"))
                 .andExpect(jsonPath("$.id").value(1));
 
-        verify(commands).create(new ProductCommand("Wireless Mouse", "Ergonomic", new BigDecimal("24.99"), 1L));
+        verify(commands).create("tenant-a", new ProductCommand("Wireless Mouse", "Ergonomic", new BigDecimal("24.99"), 1L));
     }
 
     @Test
@@ -167,7 +167,7 @@ class ProductControllerTest {
 
     @Test
     void shouldReturn400_whenCategoryDoesNotExist() throws Exception {
-        given(commands.create(any(ProductCommand.class))).willThrow(new CategoryNotFoundException(1L));
+        given(commands.create(eq("tenant-a"), any(ProductCommand.class))).willThrow(new CategoryNotFoundException(1L));
 
         mvc.perform(post("/api/v1/products").with(withRoles("ADMIN"))
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
@@ -185,7 +185,7 @@ class ProductControllerTest {
 
     @Test
     void shouldReturn200_whenAdminUpdatesProduct() throws Exception {
-        given(commands.update(eq(1L), any(ProductCommand.class))).willReturn(MOUSE);
+        given(commands.update(eq("tenant-a"), eq(1L), any(ProductCommand.class))).willReturn(MOUSE);
 
         mvc.perform(put("/api/v1/products/1").with(withRoles("ADMIN"))
                         .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
@@ -198,16 +198,37 @@ class ProductControllerTest {
         mvc.perform(delete("/api/v1/products/1").with(withRoles("ADMIN")))
                 .andExpect(status().isNoContent());
 
-        verify(commands).delete(1L);
+        verify(commands).delete("tenant-a", 1L);
     }
 
     @Test
     void shouldReturn404_whenAdminDeletesMissingProduct() throws Exception {
-        willThrow(new ProductNotFoundException(99L)).given(commands).delete(99L);
+        willThrow(new ProductNotFoundException(99L)).given(commands).delete("tenant-a", 99L);
 
         mvc.perform(delete("/api/v1/products/99").with(withRoles("ADMIN")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
+    }
+
+    // --- Bonus B3: which tenant a request acts for ---
+
+    @Test
+    void shouldReadRequestedTenant_whenAnonymousSendsTenantHeader() throws Exception {
+        given(queries.getById("tenant-b", 1L)).willReturn(MOUSE);
+
+        mvc.perform(get("/api/v1/products/1").header("X-Tenant-Id", "tenant-b"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void shouldUseTokenTenant_notHeader_whenAdminWrites() throws Exception {
+        mvc.perform(delete("/api/v1/products/1").header("X-Tenant-Id", "tenant-a")
+                        .with(jwt().jwt(token -> token.claim("tenant_id", "tenant-b")
+                                        .claim("realm_access", Map.of("roles", List.of("ADMIN"))))
+                                .authorities(new KeycloakRealmRoleConverter())))
+                .andExpect(status().isNoContent());
+
+        verify(commands).delete("tenant-b", 1L);
     }
 
     private static JwtRequestPostProcessor withRoles(String... roles) {
