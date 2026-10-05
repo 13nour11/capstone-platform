@@ -35,8 +35,8 @@ export const options = {
 
 export function setup() {
   if (ordersEnabled) {
-    verifyLogin();
-    return prepareOrders();
+    const session = verifyLogin();
+    return { session, ...prepareOrders() };
   }
   return {};
 }

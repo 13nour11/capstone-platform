@@ -57,7 +57,7 @@ export function placeOrder(data) {
   const productId = pick(ORDER_PRODUCT_IDS);
   const body = JSON.stringify({ items: [{ productId, quantity: 1, unitPrice: data.prices[productId] }] });
   const created = http.post(`${GATEWAY}/api/v1/orders`, body, {
-    headers: authHeaders(),
+    headers: authHeaders(data.session),
     tags: { name: 'POST /orders' },
     responseCallback: http.expectedStatuses(201),
   });
@@ -65,7 +65,7 @@ export function placeOrder(data) {
     return;
   }
   const status = http.get(`${GATEWAY}/api/v1/orders/${created.json('orderId')}`, {
-    headers: authHeaders(),
+    headers: authHeaders(data.session),
     tags: { name: 'GET /orders/{id}' },
   });
   check(status, { 'order readable': (r) => r.status === 200 });
