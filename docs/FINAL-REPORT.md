@@ -43,7 +43,7 @@ member's commits) and then fixes what the merge exposed — see §4.
 | NFR-05 | immediate release + sweeper for cancelled orders; evidence query in ADD §4 | `StockRepositoryTest`, `InventorySagaIT` |
 | NFR-06 | Brave → Zipkin, Kafka observation, outbox continues the stored trace, ECS JSON logs | E2E (Zipkin trace services, JSON log line) |
 | NFR-07 | JaCoCo ≥ 60 % on `*.application` per module (build fails otherwise); Testcontainers in every DB-owning service | `mvn verify` (§4) |
-| NFR-08 | `docker compose up`; `helm install` / ArgoCD | E2E on compose; Helm lint/template + kubeconform (kind not run here, §5) |
+| NFR-08 | `docker compose up`; `helm install` / ArgoCD | E2E on compose; kind + ArgoCD: all Applications Synced, self-heal shown, full Healthy blocked by the laptop's memory (§5) |
 | NFR-09 | Flyway in every DB service, `ddl-auto=validate`; all APIs under `/api/v1` | Testcontainers ITs run the migrations |
 | NFR-10 | outbox (at least once) + idempotent consumers + DLT | `PaymentSagaKafkaIT`, `NotificationKafkaIT`, `InventorySagaIT`, listener tests |
 
@@ -78,6 +78,11 @@ member's commits) and then fixes what the merge exposed — see §4.
 | no JSON logs; tracing missing in gateway/product/notification | NFR-06 | ECS JSON logs; tracing everywhere |
 | B's H2-only tests in inventory | NFR-07 | Testcontainers PostgreSQL + Flyway |
 | k6 order flow sent no `unitPrice` and ordered unstocked products | NFR-02 | k6 setup reads prices, tops up stock |
+| k6 VUs all logged in as one user at once → Keycloak brute-force lockout, a login per iteration, Keycloak at 642 % CPU | NFR-02 | one login in `setup()`, refresh-token grant per VU |
+| Zipkin in-memory store (500k spans) larger than its 160 MB heap → 15 OOM restarts under load, gateway p95 spikes | NFR-02, NFR-06 | `MEM_MAX_SPANS=20000` (compose + kind) |
+| Async `@Retry` on the `CompletableFuture` stock check could not re-run the AOP chain on another thread → retries failed, circuit opened, 70 % of orders 503 under load | FR-06, NFR-02 | `@Retry` on the synchronous caller; new retry test |
+| Kubernetes Kafka Service routed only to ready pods while Kafka needs its own Service to become ready → never ready on kind | NFR-08 | `publishNotReadyAddresses: true` |
+| Kubernetes Prometheus config had a mis-indented duplicate target (introduced while adding review-service) → crash loop | NFR-06, NFR-08 | duplicate removed; config passes `promtool` |
 
 ## 5. Verification results
 
@@ -116,19 +121,44 @@ when repeated. Highlights:
 **Static checks of deployment assets:** `docker compose config` valid; `helm lint` 9/9 charts; `helm template`
 output + infra manifests through kubeconform: 46 valid, 0 invalid; actionlint on the CI workflow: no findings.
 
-**Load (k6):** smoke 229 requests, 0 errors. Load (5 min): `POST /orders` p95 787 ms ✓, catalogue 57.2 req/s ✓,
-errors 0.93 % ✓, `GET /products` p95 872 ms ✗ (target 200). One bottleneck hypothesis was tested and rejected;
-details in `docs/PERFORMANCE-REPORT.md`.
+**Load (k6), final:** all `load-test.js` thresholds pass — `GET /products` p95 **118 ms** (was 872 ms),
+`POST /orders` p95 **223 ms**, catalogue **59.6 req/s**, errors **0 %**; smoke 236 requests, 0 failed. Three
+bottlenecks were found and fixed with before/after numbers (k6 login storm against Keycloak brute-force protection,
+Zipkin out-of-memory restarts, stock-check retry across threads); details in `docs/PERFORMANCE-REPORT.md` §4–§5.
 
-**Not run here:** kind + ArgoCD (no kind or Helm cluster on this machine), the 150-VU stress test, and a
-successful bottleneck fix.
+**Stress (k6, 150 VUs, 11 min):** 89 720 requests, **0 errors**, no restarts. Throughput levels off at ≈ 150–160
+req/s beyond ~70–100 VUs and latency grows instead (p95 ≈ 1.3 s at 150 VUs); the API gateway saturates first
+(≈ 1.8 cores). Per-stage table in the Performance Report §4.3.
+
+**Kubernetes (kind v0.33.0) + ArgoCD v3.5.3**, run with the repo's `kind-config.yaml`, `create-k8s-secrets.sh`,
+infra manifests, Helm chart and ArgoCD `infra-app.yaml` + `services-appset.yaml`. ArgoCD read a *local* git server
+(the repo URLs were substituted at apply time; nothing was pushed to GitHub) whose `env/dev` branch = this branch
++ one commit pointing the image tags at locally built images loaded into kind, i.e. what the CI `deploy-tags` job
+commits.
+
+- ArgoCD generated all 9 service Applications plus `infra`; **all 10 reached `Synced`** at the `env/dev` revision.
+- **Self-heal shown:** `kubectl scale deploy/notification-service --replicas=0` → Application OutOfSync → automated
+  sync (`initiatedBy.automated: true`, `autoHealAttemptsCount: 1`) → replicas back to 1 after 56 s.
+- GitOps update shown: two manifest fixes were committed here, merged into `env/dev` and applied by ArgoCD
+  (Kafka Service, Prometheus config — see §4).
+- Hardening read off the running pods: uid/gid 10001, `runAsNonRoot`, read-only root filesystem, one ServiceAccount
+  per service, no API token mounted (checked inside the gateway pod), no RBAC bindings, startup/readiness probes on
+  `/actuator/health/*`, DB passwords from `<service>-secrets`. The gateway answered on NodePort 30080 from the host.
+- **Not achieved: all Applications `Healthy`.** api-gateway, config-server, eureka-server and notification-service
+  were Healthy; the database services, Kafka/Zookeeper and Keycloak kept failing probes. The kind node (all 17
+  platform workloads + ArgoCD + control plane in Docker Desktop's 8 GB VM) was memory-starved: load average 142 on
+  12 CPUs, 74 MB free, memory pressure (PSI) 60 % some / 26 % full, 10.7 M pages swapped in. This is a resource
+  limit of the integration laptop, not a manifest error; the cluster was deleted afterwards.
 
 ## 6. Open items for the team
 
 - Sign `docs/TEAM-CHARTER.md`; draw and photograph the three paper drawings into `docs/architecture/`.
 - Record the S25 Architecture Review's two risks in ADD §6 and the peer-review result in the ADD header.
-- Run k6 smoke/load/stress on the demo machine, find and fix one bottleneck, fill `docs/PERFORMANCE-REPORT.md`.
-- Bring the platform up on kind with ArgoCD (create the `env/dev` branch once) and capture Synced/Healthy.
+- Re-run k6 smoke/load/stress on the demo machine for the G3 evidence (the integration-laptop numbers are in the
+  Performance Report).
+- Kubernetes: give Docker Desktop more memory (≥ 12 GB; this laptop has 16 GB) or use a bigger machine, push the
+  branch and create `env/dev` once (`git push origin main:env/dev`), then follow `deployment/argocd/README.md` to
+  show all Applications Synced **and** Healthy.
 - Capture a Zipkin trace screenshot and a Grafana panel screenshot for G3.
 - Known technical debt: order-service is not a Resource Server (ADD D7.1); no Pact contract test; notification
   dedup is in memory; single Kafka broker; no NetworkPolicies; test JVMs take > 30 s to exit (Surefire kills the fork
