@@ -42,12 +42,13 @@ class OutboxPublisherTest {
 
     @BeforeEach
     void setUp() {
-        outboxPublisher = new OutboxPublisher(outboxEventRepository, kafkaTemplate);
+        outboxPublisher = new OutboxPublisher(outboxEventRepository, kafkaTemplate,
+                new OutboxTraceContext(io.micrometer.tracing.Tracer.NOOP, io.micrometer.tracing.propagation.Propagator.NOOP));
         ReflectionTestUtils.setField(outboxPublisher, "orderEventsTopic", "order-events");
     }
 
     @Test
-    @DisplayName("Should publish pending outbox events and mark them SENT with traceparent and eventType headers")
+    @DisplayName("Should publish pending outbox events and mark them SENT with eventId and eventType headers")
     void shouldPublishPendingEvents_andMarkAsSent() {
         OutboxEvent event = new OutboxEvent(
                 "evt-100",
@@ -72,8 +73,9 @@ class OutboxPublisherTest {
         assertThat(captured.key()).isEqualTo("ord-999");
         assertThat(captured.value()).isEqualTo("{\"orderId\":\"ord-999\"}");
 
-        assertThat(new String(captured.headers().lastHeader("traceparent").value(), StandardCharsets.UTF_8))
-                .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
+        // traceparent is injected by the KafkaTemplate observation from the span that continues the stored trace
+        assertThat(new String(captured.headers().lastHeader("eventId").value(), StandardCharsets.UTF_8))
+                .isEqualTo("evt-100");
         assertThat(new String(captured.headers().lastHeader("eventType").value(), StandardCharsets.UTF_8))
                 .isEqualTo("OrderPlaced");
 
@@ -89,6 +91,21 @@ class OutboxPublisherTest {
         outboxPublisher.publishPendingEvents();
 
         verify(kafkaTemplate, never()).send(any(ProducerRecord.class));
+        verify(outboxEventRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("At-least-once: an event the broker did not acknowledge stays PENDING and is retried next poll")
+    void shouldKeepEventPending_whenBrokerDoesNotAcknowledge() {
+        OutboxEvent event = new OutboxEvent("evt-101", "Order", "ord-1", "OrderPlaced", "{}", null,
+                OutboxStatus.PENDING, Instant.now());
+        when(outboxEventRepository.findPendingEventsForUpdate(50)).thenReturn(List.of(event));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
+
+        outboxPublisher.publishPendingEvents();
+
+        assertThat(event.getStatus()).isEqualTo(OutboxStatus.PENDING);
         verify(outboxEventRepository, never()).save(any());
     }
 }

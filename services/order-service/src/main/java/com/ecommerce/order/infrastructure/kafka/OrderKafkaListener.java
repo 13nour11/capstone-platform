@@ -1,6 +1,7 @@
 package com.ecommerce.order.infrastructure.kafka;
 
 import com.ecommerce.order.application.OrderService;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -31,25 +32,21 @@ public class OrderKafkaListener {
         String payload = record.value();
         log.info("Received event {} on topic {}", eventType, record.topic());
 
-        try {
-            JsonNode root = objectMapper.readTree(payload);
-            String eventId = root.has("eventId") ? root.get("eventId").asText() : record.key();
-            String orderId = root.has("orderId") ? root.get("orderId").asText() : record.key();
+        JsonNode root = parse(payload);
+        String eventId = root.has("eventId") ? root.get("eventId").asText() : record.key();
+        String orderId = root.has("orderId") ? root.get("orderId").asText() : record.key();
 
-            switch (eventType) {
-                case "PaymentCompleted" -> {
-                    orderService.confirmOrder(eventId, orderId);
-                    log.info("Handled PaymentCompleted for order: {}", orderId);
-                }
-                case "PaymentFailed" -> {
-                    String reason = root.has("reason") ? root.get("reason").asText() : "PAYMENT_FAILED";
-                    orderService.cancelOrder(eventId, orderId, reason);
-                    log.info("Handled PaymentFailed for order: {} (reason: {})", orderId, reason);
-                }
-                default -> log.debug("Ignoring unrecognized payment event type: {}", eventType);
+        switch (eventType) {
+            case "PaymentCompleted" -> {
+                orderService.confirmOrder(eventId, orderId);
+                log.info("Handled PaymentCompleted for order: {}", orderId);
             }
-        } catch (Exception e) {
-            log.error("Failed to process payment event {}: {}", eventType, e.getMessage(), e);
+            case "PaymentFailed" -> {
+                String reason = root.has("reason") ? root.get("reason").asText() : "PAYMENT_FAILED";
+                orderService.cancelOrder(eventId, orderId, reason);
+                log.info("Handled PaymentFailed for order: {} (reason: {})", orderId, reason);
+            }
+            default -> log.debug("Ignoring unrecognized payment event type: {}", eventType);
         }
     }
 
@@ -60,21 +57,25 @@ public class OrderKafkaListener {
         String payload = record.value();
         log.info("Received event {} on topic {}", eventType, record.topic());
 
-        try {
-            JsonNode root = objectMapper.readTree(payload);
-            String eventId = root.has("eventId") ? root.get("eventId").asText() : record.key();
-            String orderId = root.has("orderId") ? root.get("orderId").asText() : record.key();
+        JsonNode root = parse(payload);
+        String eventId = root.has("eventId") ? root.get("eventId").asText() : record.key();
+        String orderId = root.has("orderId") ? root.get("orderId").asText() : record.key();
 
-            switch (eventType) {
-                case "InventoryReservationFailed" -> {
-                    String reason = root.has("reason") ? root.get("reason").asText() : "INVENTORY_RESERVATION_FAILED";
-                    orderService.cancelOrder(eventId, orderId, reason);
-                    log.info("Handled InventoryReservationFailed for order: {}", orderId);
-                }
-                default -> log.debug("Ignoring non-failure inventory event in order-service: {}", eventType);
+        switch (eventType) {
+            case "InventoryReservationFailed" -> {
+                String reason = root.has("reason") ? root.get("reason").asText() : "INVENTORY_RESERVATION_FAILED";
+                orderService.cancelOrder(eventId, orderId, reason);
+                log.info("Handled InventoryReservationFailed for order: {}", orderId);
             }
-        } catch (Exception e) {
-            log.error("Failed to process inventory event {}: {}", eventType, e.getMessage(), e);
+            default -> log.debug("Ignoring non-failure inventory event in order-service: {}", eventType);
+        }
+    }
+
+    private JsonNode parse(String payload) {
+        try {
+            return objectMapper.readTree(payload);
+        } catch (JsonProcessingException e) {
+            throw new InvalidEventException("Unreadable event payload", e);
         }
     }
 

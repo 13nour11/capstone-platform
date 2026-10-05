@@ -125,9 +125,9 @@ class OrderControllerTest {
                 Instant.now()
         );
 
-        when(orderService.getOrderById("ord-100")).thenReturn(expectedResponse);
+        when(orderService.getOrderById("customer-1", "ord-100")).thenReturn(expectedResponse);
 
-        mockMvc.perform(get("/api/v1/orders/ord-100")
+        mockMvc.perform(get("/api/v1/orders/ord-100").header("X-User-Id", "customer-1")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderId").value("ord-100"))
@@ -137,13 +137,27 @@ class OrderControllerTest {
     @Test
     @DisplayName("GET /api/v1/orders/{id} should return 404 when order does not exist")
     void shouldReturn404_whenOrderNotFound() throws Exception {
-        when(orderService.getOrderById("ord-999"))
+        when(orderService.getOrderById("customer-1", "ord-999"))
                 .thenThrow(new OrderNotFoundException("ord-999"));
 
-        mockMvc.perform(get("/api/v1/orders/ord-999")
+        mockMvc.perform(get("/api/v1/orders/ord-999").header("X-User-Id", "customer-1")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("ORDER_NOT_FOUND"))
                 .andExpect(jsonPath("$.title").value("Order Not Found"));
+    }
+
+    @Test
+    @DisplayName("No default identity: a request without the gateway's X-User-Id is rejected and nothing is ordered")
+    void shouldReturn400_whenUserHeaderIsMissing() throws Exception {
+        CreateOrderRequest request = new CreateOrderRequest(List.of(
+                new OrderItemRequest(1L, 2, new BigDecimal("49.99"))
+        ));
+
+        mockMvc.perform(post("/api/v1/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+        org.mockito.Mockito.verifyNoInteractions(orderService);
     }
 }

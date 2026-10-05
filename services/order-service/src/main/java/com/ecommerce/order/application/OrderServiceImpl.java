@@ -17,6 +17,7 @@ import com.ecommerce.order.domain.event.OrderItemPayload;
 import com.ecommerce.order.domain.event.OrderPlaced;
 import com.ecommerce.order.domain.exception.OrderNotFoundException;
 import com.ecommerce.order.infrastructure.client.InventoryServiceClient;
+import com.ecommerce.order.infrastructure.outbox.OutboxTraceContext;
 import com.ecommerce.order.infrastructure.persistence.OrderRepository;
 import com.ecommerce.order.infrastructure.persistence.OutboxEventRepository;
 import com.ecommerce.order.infrastructure.persistence.ProcessedEventRepository;
@@ -26,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -42,17 +44,23 @@ public class OrderServiceImpl implements OrderService {
     private final ProcessedEventRepository processedEventRepository;
     private final InventoryServiceClient inventoryServiceClient;
     private final ObjectMapper objectMapper;
+    private final TransactionOperations transactions;
+    private final OutboxTraceContext traceContext;
 
     public OrderServiceImpl(OrderRepository orderRepository,
                             OutboxEventRepository outboxEventRepository,
                             ProcessedEventRepository processedEventRepository,
                             InventoryServiceClient inventoryServiceClient,
-                            ObjectMapper objectMapper) {
+                            ObjectMapper objectMapper,
+                            TransactionOperations transactions,
+                            OutboxTraceContext traceContext) {
         this.orderRepository = orderRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.processedEventRepository = processedEventRepository;
         this.inventoryServiceClient = inventoryServiceClient;
         this.objectMapper = objectMapper;
+        this.transactions = transactions;
+        this.traceContext = traceContext;
     }
 
     @Override
@@ -64,12 +72,11 @@ public class OrderServiceImpl implements OrderService {
             inventoryServiceClient.verifyStockAvailability(item.productId(), item.quantity());
         }
 
-        // 2. Persist order and outbox event in ONE database transaction
-        return persistOrderAndOutbox(customerId, request);
+        // 2. Persist order and outbox event in ONE database transaction (a self-call would bypass @Transactional)
+        return transactions.execute(status -> persistOrderAndOutbox(customerId, request));
     }
 
-    @Transactional
-    public OrderResponse persistOrderAndOutbox(String customerId, CreateOrderRequest request) {
+    private OrderResponse persistOrderAndOutbox(String customerId, CreateOrderRequest request) {
         String orderId = UUID.randomUUID().toString();
 
         BigDecimal totalAmount = BigDecimal.ZERO;
@@ -102,8 +109,9 @@ public class OrderServiceImpl implements OrderService {
                 .map(item -> new OrderItemPayload(item.getProductId(), item.getQuantity(), item.getUnitPrice()))
                 .toList();
 
+        String placedEventId = UUID.randomUUID().toString();
         OrderPlaced event = new OrderPlaced(
-                UUID.randomUUID().toString(),
+                placedEventId,
                 saved.getId(),
                 saved.getCustomerId(),
                 saved.getTotalAmount(),
@@ -111,7 +119,7 @@ public class OrderServiceImpl implements OrderService {
                 saved.getCreatedAt()
         );
 
-        saveOutboxEvent("Order", saved.getId(), "OrderPlaced", event);
+        saveOutboxEvent(placedEventId, "Order", saved.getId(), "OrderPlaced", event);
 
         log.info("Order placed and OutboxEvent persisted: orderId={}, status=PENDING", saved.getId());
         return mapToResponse(saved);
@@ -127,13 +135,14 @@ public class OrderServiceImpl implements OrderService {
             order.confirm();
             orderRepository.save(order);
 
+            String confirmedEventId = UUID.randomUUID().toString();
             OrderConfirmed event = new OrderConfirmed(
-                    UUID.randomUUID().toString(),
+                    confirmedEventId,
                     order.getId(),
                     order.getCustomerId(),
                     Instant.now()
             );
-            saveOutboxEvent("Order", order.getId(), "OrderConfirmed", event);
+            saveOutboxEvent(confirmedEventId, "Order", order.getId(), "OrderConfirmed", event);
             log.info("Order {} confirmed and OrderConfirmed event queued to outbox", orderId);
         });
 
@@ -150,13 +159,15 @@ public class OrderServiceImpl implements OrderService {
             order.cancel();
             orderRepository.save(order);
 
+            String cancelledEventId = UUID.randomUUID().toString();
             OrderCancelled event = new OrderCancelled(
-                    UUID.randomUUID().toString(),
+                    cancelledEventId,
                     order.getId(),
+                    order.getCustomerId(),
                     reason,
                     Instant.now()
             );
-            saveOutboxEvent("Order", order.getId(), "OrderCancelled", event);
+            saveOutboxEvent(cancelledEventId, "Order", order.getId(), "OrderCancelled", event);
             log.info("Order {} cancelled (reason: {}) and OrderCancelled event queued to outbox", orderId, reason);
         });
 
@@ -165,9 +176,11 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional(readOnly = true)
-    public OrderResponse getOrderById(String orderId) {
+    public OrderResponse getOrderById(String customerId, String orderId) {
         log.info("Fetching order by id: {}", orderId);
+        // FR-10: another customer's order is reported as missing (404), so order ids reveal nothing
         return orderRepository.findById(orderId)
+                .filter(order -> order.getCustomerId().equals(customerId))
                 .map(this::mapToResponse)
                 .orElseThrow(() -> new OrderNotFoundException(orderId));
     }
@@ -182,13 +195,14 @@ public class OrderServiceImpl implements OrderService {
                 .toList();
     }
 
-    private void saveOutboxEvent(String aggregateType, String aggregateId, String eventType, Object payload) {
+    private void saveOutboxEvent(String eventId, String aggregateType, String aggregateId, String eventType,
+                                 Object payload) {
         try {
             String payloadJson = objectMapper.writeValueAsString(payload);
-            String traceparent = UUID.randomUUID().toString(); // Default W3C traceparent carrier
-
+            // NFR-06: the real W3C trace context of this transaction, continued by the publisher
+            String traceparent = traceContext.currentTraceparent();
             OutboxEvent outboxEvent = new OutboxEvent(
-                    UUID.randomUUID().toString(),
+                    eventId,
                     aggregateType,
                     aggregateId,
                     eventType,

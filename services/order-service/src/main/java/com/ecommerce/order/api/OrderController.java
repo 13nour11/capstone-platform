@@ -17,6 +17,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/**
+ * Customer identity comes only from {@code X-User-Id}, which the gateway sets from the validated JWT and strips
+ * from client requests (FR-04). There is no default identity.
+ */
 @Validated
 @RestController
 @RequestMapping("/api/v1/orders")
@@ -30,20 +34,21 @@ public class OrderController {
 
     @PostMapping
     public ResponseEntity<OrderResponse> placeOrder(
-            @RequestHeader(value = "X-User-Id", defaultValue = "customer-1") String customerId,
+            @RequestHeader("X-User-Id") String customerId,
             @Valid @RequestBody CreateOrderRequest request) {
         OrderResponse response = orderService.createOrder(customerId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<OrderResponse> getOrderById(@PathVariable("id") String orderId) {
-        return ResponseEntity.ok(orderService.getOrderById(orderId));
+    public ResponseEntity<OrderResponse> getOrderById(@RequestHeader("X-User-Id") String customerId,
+                                                      @PathVariable("id") String orderId) {
+        return ResponseEntity.ok(orderService.getOrderById(customerId, orderId));
     }
 
     @GetMapping
     public ResponseEntity<List<OrderResponse>> getMyOrders(
-            @RequestHeader(value = "X-User-Id", defaultValue = "customer-1") String customerId) {
+            @RequestHeader("X-User-Id") String customerId) {
         return ResponseEntity.ok(orderService.getOrdersByCustomerId(customerId));
     }
 }
