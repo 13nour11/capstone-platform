@@ -14,8 +14,16 @@ management:
       spring.scheduled: false
 
 logging:
-  pattern:
-    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+  # NFR-06: JSON logs, one object per line. Micrometer Tracing puts traceId/spanId in the MDC and the
+  # logstash format writes them as fields, so searching one traceId finds every line of one order in
+  # every service. Example:
+  # {"@timestamp":"…","message":"Product 2 is out of stock …","level":"WARN","traceId":"6ac4…","spanId":"1a4b…","service":"order-service"}
+  structured:
+    format:
+      console: logstash
+    json:
+      add:
+        service: ${spring.application.name}
   level:
     com.ecommerce: INFO
     org.springframework.kafka: INFO
