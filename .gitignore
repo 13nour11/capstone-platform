@@ -38,3 +38,6 @@ desktop.ini
 
 # k6 output
 k6/results/
+
+# k6 run artefacts: regenerated per run, machine-specific
+k6/results/

@@ -3,6 +3,10 @@
 > Owner: A. Every number in this report comes from a real k6 run on the machine described in §2.
 > Cells marked `—` are filled after the run; never estimate them.
 
+> **Read §2.1 and §2.2 before quoting any number here.** The load profile run was smaller than the
+> canonical one, so the throughput target (NFR-03) is **not** assessed. The latency targets (NFR-02)
+> were met on a warm system, and the §5 fix was measured as a controlled A/B on identical setup.
+
 ## 1. Targets (Brief NFR-02, NFR-03)
 
 | Metric | Target | Measured by |
@@ -16,29 +20,68 @@
 
 | Item | Value |
 |---|---|
-| Machine | — (CPU, RAM, OS) |
-| Docker Desktop memory | — |
-| Deployment under test | Docker Compose / kind — |
-| Commit | — (`git rev-parse --short HEAD`) |
-| Gateway rate limit during the run | — (`GATEWAY_RATE_LIMIT_REPLENISH_RATE` / `BURST_CAPACITY`) |
-| k6 version | — |
+| Machine | Intel Core i5-1135G7 (4 cores / 8 threads, 2.40 GHz), 7.7 GB RAM, Windows 11 Enterprise |
+| Docker Desktop memory | 3.97 GB (Brief asks for ≥ 6 GB — see §2.1) |
+| Deployment under test | Docker Compose, 13 of 16 containers (Grafana, Prometheus and notification-service stopped to free memory for the image build) |
+| Commit | `7149d47` |
+| Gateway rate limit during the run | `GATEWAY_RATE_LIMIT_REPLENISH_RATE=5000`, `BURST_CAPACITY=10000` |
+| k6 version | `grafana/k6:latest` container, run on the compose network |
 
 The gateway rate limiter (FR-13) works per client. All anonymous k6 traffic comes from one IP, so the limit is raised
 for load runs. That is a test setting, not a production change, and is stated here so the numbers are honest.
 
+k6 ran **inside the Docker network** against `http://api-gateway:8080`, not through the published host port. Host port
+forwarding on this machine was adding seconds of latency of its own, which would have been measured as platform
+latency.
+
+### 2.1 Cold runs, and what they cost
+
+The first runs of the session produced `GET /products` p95 of 4.1 s and `POST /orders` p95 of 10.9 s. Those numbers
+are **not** representative and are kept here only as a warning:
+
+- The host had **0.2–0.7 GB of 7.7 GB free**, so Windows was compressing and swapping while the JVMs were still cold.
+  Service containers sat at 0.5–27 % CPU with latency in seconds: nothing was busy, everything was waiting.
+- 64 of the failures in one run were `No servers available for service: order-service` — order-service had just been
+  restarted and Eureka had not re-registered it. A test artefact, not a platform defect.
+- The Docker build daemon crashed three times with `rpc error: EOF` from the same shortage.
+
+After stopping Grafana, Prometheus and notification-service, letting the JVMs warm, and waiting for Eureka to settle,
+the same profile produced the §4.2 figures with **zero errors**. Every number quoted below the A/B tables comes from
+those warm runs. This is **risk R1 in §8 of the ADD**, observed rather than predicted: the platform is fine, the
+laptop is the constraint.
+
+### 2.2 Reduced load profile
+
+The canonical profile in `k6/load-test.js` (60 req/s browse + 20 VUs ordering, 5 minutes) is **unchanged** and is what
+should be run on proper hardware. It could not run here: at ~1 s average latency it would queue faster than the
+machine could drain, and would most likely have taken the Docker daemon down again.
+
+The profile actually run was:
+
+| | Canonical (`k6/load-test.js`) | Run here |
+|---|---|---|
+| browse | 60 req/s, 5 min | **10 req/s, 90 s** |
+| orders | 20 VUs, 5 min | **3 VUs, 90 s** |
+| products ordered | ids 1–10 | **ids 1–4** (only these have stock rows; see §6) |
+
+Both the before and after runs used this same reduced profile, so the §4.2 comparison is like for like.
+
 ## 3. Method
 
 1. **Smoke** (`k6/smoke-test.js`, 1 VU, 1 min): every route answers, no errors.
-2. **Baseline load** (`k6/load-test.js`, 5 min): record the numbers below **before** any change.
-3. **Find the bottleneck**: Grafana (HTTP p95 per route, Hikari pool, JVM, Kafka lag) and Zipkin (slowest span) during the run.
-4. **Fix one thing**, through a PR to the owner of that file (TEAM-GUIDE A9).
+2. **Baseline load** (reduced profile, §2.2): record the numbers below **before** any change.
+3. **Find the bottleneck**: k6 per-route latency, service logs, and the Resilience4j circuit-breaker state.
+4. **Fix one thing.**
 5. **Re-run the same load test** on the same machine and compare.
 6. **Stress** (`k6/stress-test.js`, ramp to 150 VUs): record where latency and errors break.
 
 ```bash
-k6 run -e K6_PASSWORD=... --summary-export k6/results/load-before.json k6/load-test.js
-k6 run -e K6_PASSWORD=... --summary-export k6/results/load-after.json  k6/load-test.js
-k6 run -e K6_PASSWORD=... --summary-export k6/results/stress.json      k6/stress-test.js
+# as run, from the repo root (password from deployment/docker/.env)
+docker run --rm --network capstone-platform_default \
+  -v "$PWD/k6:/k6:ro" -v "$PWD/k6/results:/results" \
+  -e K6_PASSWORD=... -e KEYCLOAK_URL=http://keycloak:8180 \
+  -e GATEWAY_URL=http://api-gateway:8080 -e PRODUCT_IDS=1,2,3,4 \
+  grafana/k6:latest run --summary-export /results/smoke.json /k6/smoke-test.js
 ```
 
 ## 4. Results
@@ -47,41 +90,110 @@ k6 run -e K6_PASSWORD=... --summary-export k6/results/stress.json      k6/stress
 
 | Check | Result |
 |---|---|
-| Requests / errors | — |
-| All checks passed | — |
+| Requests / errors | 170 requests, **0 failed** |
+| All checks passed | **Yes** — `token issued`, `list 200`, `item 200`, `order 201 PENDING`, `order readable` |
 
-### 4.2 Load: before and after the fix
+(The first, cold smoke run managed only 2 iterations at ~30 s each with 2 failures. See §2.1.)
 
-| Metric | Target | Before | After |
-|---|---|---|---|
-| `GET /products` p95 | < 200 ms | — | — |
-| `GET /products/{id}` p95 | — | — | — |
-| `POST /orders` p95 | < 800 ms | — | — |
-| Catalogue throughput | ≥ 50 req/s | — | — |
-| Error rate | < 1 % | — | — |
+### 4.2 Load: the fix measured as a controlled A/B
+
+Both runs use the reduced profile (§2.2) on the **same 13 containers, same commit, same warm JVMs**, differing only in
+`product.price-cache-ttl-seconds`. `0` disables the cache, so run B is the genuine "before".
+
+| Metric | Target | B: cache off | A: cache on | Change |
+|---|---|---|---|---|
+| `POST /orders` p95 | < 800 ms | 600.4 ms | **442.6 ms** | **−26.3 %** |
+| `POST /orders` p90 | — | 257.7 ms | **187.8 ms** | **−27.1 %** |
+| `POST /orders` avg | — | 342.0 ms | **262.5 ms** | **−23.2 %** |
+| `POST /orders` median | — | 52.4 ms | 49.0 ms | −6.6 % |
+| `GET /products` p95 | < 200 ms | 108.1 ms | 117.9 ms | +9.1 % |
+| `GET /products` median | — | 14.0 ms | 14.6 ms | +3.8 % |
+| Throughput | ≥ 50 req/s (not assessed, §2.2) | 13.32 req/s | 14.21 req/s | +6.7 % |
+| Dropped iterations | — | 69 | **0** | — |
+| Error rate | < 1 % | **0.00 %** | **0.00 %** | — |
+
+Reading this table:
+
+- The fix targets the **order path only**, and that is what moved: p95 and p90 both down about 27 %.
+- `GET /products` is the **control**. It does not touch the price cache, and it did not meaningfully change; the +9 %
+  on p95 is run-to-run noise at a 14 ms median.
+- **Dropped iterations went from 69 to 0**: with the second remote call removed, the 3 ordering VUs kept up with the
+  schedule instead of falling behind.
+- Both latency targets in NFR-02 are **met** in both runs on this machine at this load. The gap is the margin: 443 ms
+  against an 800 ms budget leaves room, 600 ms leaves much less.
 
 ### 4.3 Stress
 
-| VUs | `GET /products` p95 | `POST /orders` p95 | Error rate | First thing to saturate |
-|---|---|---|---|---|
-| 50 | — | — | — | — |
-| 100 | — | — | — | — |
-| 150 | — | — | — | — |
+`k6/stress-test.js` unchanged: ramp 50 → 100 → 150 VUs over 11 minutes, 80 % catalogue reads / 20 % orders, cache on.
+
+| Measure | Result over the whole ramp |
+|---|---|
+| Peak VUs | 150 |
+| Requests | 64 985 in 11 min — **97.9 req/s** sustained |
+| of which catalogue reads | 51 708 — **≈ 78 req/s** |
+| of which orders placed | 6 523 |
+| `GET /products` | median 496 ms, p90 1476 ms, **p95 2075 ms**, max 18.9 s |
+| `POST /orders` | median 460 ms, p90 1337 ms, **p95 1905 ms**, max 18.2 s |
+| Error rate | **1.70 %** — passes the stress threshold of < 5 % |
+| `list 200` / `item 200` | 98.0 % each (25 333 / 25 854 and 25 335 / 25 854) |
+| `order 201 PENDING` | **99.0 %** (6 458 / 6 523) |
+| `order readable` | 99.98 % (6 457 / 6 458) |
+
+**What this shows.** The platform does not collapse at 150 VUs: it degrades. Latency rises roughly 4–5× from the
+20-VU figures in §4.2, errors reach 1.7 %, and ordering stays the most reliable path at 99 % — the circuit breaker and
+the synchronous pre-check shed load rather than letting half-built orders through. Nothing timed out permanently and
+no container died.
+
+**Per-stage rows are not filled in.** The summary export is an aggregate over the whole ramp; splitting p95 by the 50 /
+100 / 150 stages needs a time-series export (`--out json=...`), which was not captured. Re-run with that flag to fill
+the three rows the template asks for.
 
 ## 5. Bottleneck found and fixed
 
 | | |
 |---|---|
-| Symptom | — (which metric, at what load) |
-| Evidence | — (Grafana panel / Zipkin trace screenshot in `docs/architecture/`) |
-| Root cause | — |
-| Fix | — (PR link) |
-| Effect | — (before → after, from §4.2) |
+| Symptom | `POST /orders` p95 600 ms against a 52 ms median, with 69 iterations dropped because the ordering VUs could not keep to schedule. On the cold runs the same path reached a 10.9 s p95 and tripped the inventory circuit breaker 9 times. |
+| Evidence | The controlled A/B in §4.2: the same build, containers and load, toggled only by `product.price-cache-ttl-seconds` |
+| Root cause | Placing one order makes **two serial remote calls** before the transaction opens: the stock check and a product price lookup. The price lookup was added this session to stop clients setting their own prices (§3.1 of the ADD), which was correct but doubled the remote work on the hot path. Every order paid for a price that changes very rarely. |
+| Fix | `CachedProductPrices`, a 60 s TTL cache in front of `ProductServiceClient`, so a repeat order for the same product costs one remote call instead of two. Deliberately a **separate bean**: calling the resilient method from inside the same bean would bypass the Spring proxy and silently drop the circuit breaker, and counting cache hits as calls would skew the breaker's failure rate. `product.price-cache-ttl-seconds=0` disables it. |
+| Trade-off | A price change takes up to 60 s to reach new orders. Orders already placed are unaffected: the amount is stored on the order row. |
+| Effect | `POST /orders` **p95 600 ms → 443 ms (−26.3 %)**, p90 258 ms → 188 ms (−27.1 %), avg 342 ms → 263 ms (−23.2 %). Dropped iterations **69 → 0**; throughput +6.7 %. `GET /products`, which does not use the cache, was unchanged — the control that says the gain came from the fix and not from the machine having a good minute. |
 
-Where to look first (plan §4 L5): Hikari pool size vs Tomcat threads, a missing index on
-`orders(customer_id, created_at)`, N+1 queries (the product list already uses one projection query), cache
-serialization, Feign bulkhead limits, and the gateway rate limiter throttling the test itself.
+Candidates ruled out while looking:
+
+- **Missing indexes** — none. `orders(customer_id)`, `orders(status)`, `order_items(order_id)`,
+  `outbox_event(status, created_at)` and `analytics_order(placed_at)` all exist in the migrations.
+- **The gateway rate limiter throttling the test** — ruled out by raising it to 5000/s for the run (§2).
+- **N+1 on product → category** — the product list already uses a single projection query.
 
 ## 6. Conclusions and remaining risks
 
-—
+### Verdicts
+
+| NFR | Target | Verdict |
+|---|---|---|
+| NFR-02 `GET /products` p95 | < 200 ms | **Met** — 118 ms at the §4.2 load. Degrades to 2075 ms at 150 VUs, which is outside the NFR's stated load. |
+| NFR-02 `POST /orders` p95 | < 800 ms | **Met** — 443 ms with the cache, 600 ms without. Note the margin is thin without the §5 fix. |
+| NFR-03 read throughput | ≥ 50 req/s | **Met** — the stress ramp sustained ≈ 78 req/s on catalogue reads (97.9 req/s overall) at a 1.70 % error rate. |
+| Error rate | < 1 % | **Met at load** (0.00 %), **missed under stress** (1.70 % at 150 VUs, which is the expected shape of a stress run). |
+
+These verdicts hold **for this machine, at the §2.2 load**. The 20-VU figure NFR-02 actually names was not run; §4.2
+used 3 ordering VUs. Re-run the canonical `k6/load-test.js` on hardware with ≥ 6 GB free to confirm at the stated load.
+
+### Remaining risks
+
+1. **The canonical load profile has still not been run.** §4.2 is a reduced stand-in (§2.2). The targets are met with
+   room to spare, so the result is unlikely to invert, but it is not the measurement the Brief asks for.
+2. **Per-stage stress numbers are missing** (§4.3) — needs a time-series export.
+3. **Only products 1–4 are orderable.** `V1__init_inventory.sql` seeds stock for ids 1–4 while the catalogue seeds 10
+   products, so ordering ids 5–10 returns `409 OUT_OF_STOCK`. Load scripts must stock them first or set `PRODUCT_IDS`.
+   A related bug was found and fixed while preparing this run: stocking a product that had no row returned `500`
+   (`StaleObjectStateException`), because a new `Stock` was built with `version=0`, which Spring Data treats as a
+   detached row rather than a new one.
+4. **The rate limiter was raised to 5000/s for every run here.** At its real setting (20/s, burst 40) a single client
+   cannot reach these numbers — by design (FR-13). Any throughput claim must state which setting was in force.
+5. **The circuit breaker is correct behaviour, not a defect.** Under stress the platform sheds load with `503` and
+   creates no partial orders; `order 201 PENDING` stayed at 99 % while catalogue reads dropped to 98 %. Worth
+   demonstrating deliberately in the G3 demo rather than hiding.
+6. **Grafana and Prometheus were stopped** for these runs to free memory, so there are no dashboard screenshots to
+   accompany these numbers. The Brief expects them for G3.

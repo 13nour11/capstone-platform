@@ -68,6 +68,9 @@ inventory:
 product:
   service:
     url: ${PRODUCT_SERVICE_URL:http://localhost:8081}
+  # How long an order may reuse a product's price before asking the catalogue again.
+  # 0 disables the cache entirely (every order pays a second remote call).
+  price-cache-ttl-seconds: ${PRODUCT_PRICE_CACHE_TTL_SECONDS:60}
 
 resilience4j:
   circuitbreaker:

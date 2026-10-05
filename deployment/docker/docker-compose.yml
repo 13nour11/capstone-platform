@@ -250,6 +250,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/order_db
       INVENTORY_SERVICE_URL: http://inventory-service:8084
       PRODUCT_SERVICE_URL: http://product-service:8081
+      PRODUCT_PRICE_CACHE_TTL_SECONDS: ${PRODUCT_PRICE_CACHE_TTL_SECONDS:-60}
     depends_on:
       eureka-server:
         condition: service_healthy
