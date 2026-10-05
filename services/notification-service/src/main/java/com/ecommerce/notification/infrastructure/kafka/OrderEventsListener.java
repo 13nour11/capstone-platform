@@ -24,7 +24,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 
 /**
- * Consumes order-events. A failed send is retried on order-events.retry-N topics with exponential backoff
+ * Consumes order-events. Every Saga event is a flat JSON object routed by the {@code eventType} record header
+ * (the contract the order, inventory and payment outboxes publish, ADD §3).
+ * A failed send is retried on order-events.retry-N topics with exponential backoff
  * (4 attempts in total by default); after that, or at once for a poison message, it is parked in
  * order-events.DLT, where an alert is logged and counted (FR-11).
  */
@@ -32,6 +34,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 public class OrderEventsListener {
 
     static final String TOPIC = "order-events";
+    static final String EVENT_TYPE_HEADER = "eventType";
 
     private static final Logger log = LoggerFactory.getLogger(OrderEventsListener.class);
     private static final Map<String, Type> NOTIFIED_EVENTS = Map.of(
@@ -58,8 +61,8 @@ public class OrderEventsListener {
             topicSuffixingStrategy = TopicSuffixingStrategy.SUFFIX_WITH_INDEX_VALUE,
             exclude = InvalidEventException.class)
     @KafkaListener(topics = TOPIC, groupId = "${spring.kafka.consumer.group-id:notification-service}")
-    public void onOrderEvent(String message) {
-        toNotification(message).ifPresent(notifications::notifyCustomer);
+    public void onOrderEvent(String message, @Header(name = EVENT_TYPE_HEADER, required = false) String eventType) {
+        toNotification(eventType, message).ifPresent(notifications::notifyCustomer);
     }
 
     @DltHandler
@@ -71,29 +74,28 @@ public class OrderEventsListener {
         meterRegistry.counter("notifications.dlt", "topic", topic).increment();
     }
 
-    Optional<OrderNotification> toNotification(String message) {
-        EventEnvelope event = parse(message);
-        Type type = NOTIFIED_EVENTS.get(event.eventType());
+    Optional<OrderNotification> toNotification(String eventType, String message) {
+        Type type = eventType == null ? null : NOTIFIED_EVENTS.get(eventType);
         if (type == null) {
-            log.debug("Skipping eventType={} eventId={}", event.eventType(), event.eventId());
+            log.debug("Skipping eventType={}", eventType);
             return Optional.empty();
         }
-        JsonNode payload = event.payload();
-        String orderId = text(payload, "orderId").orElse(event.aggregateId());
-        String customerId = text(payload, "customerId")
-                .orElseThrow(() -> new InvalidEventException("customerId missing in event " + event.eventId()));
-        if (orderId == null) {
-            throw new InvalidEventException("orderId missing in event " + event.eventId());
-        }
-        return Optional.of(new OrderNotification(event.eventId(), type, orderId, customerId,
-                text(payload, "reason").orElse(null)));
+        JsonNode event = parse(message);
+        String eventId = text(event, "eventId")
+                .orElseThrow(() -> new InvalidEventException("eventId missing in " + eventType));
+        String orderId = text(event, "orderId")
+                .orElseThrow(() -> new InvalidEventException("orderId missing in event " + eventId));
+        String customerId = text(event, "customerId")
+                .orElseThrow(() -> new InvalidEventException("customerId missing in event " + eventId));
+        return Optional.of(new OrderNotification(eventId, type, orderId, customerId,
+                text(event, "reason").orElse(null)));
     }
 
-    private EventEnvelope parse(String message) {
+    private JsonNode parse(String message) {
         try {
-            EventEnvelope event = objectMapper.readValue(message, EventEnvelope.class);
-            if (event == null || event.eventId() == null || event.eventType() == null) {
-                throw new InvalidEventException("eventId and eventType are required");
+            JsonNode event = objectMapper.readTree(message);
+            if (event == null || !event.isObject()) {
+                throw new InvalidEventException("Event is not a JSON object");
             }
             return event;
         } catch (JsonProcessingException e) {
@@ -101,10 +103,10 @@ public class OrderEventsListener {
         }
     }
 
-    private static Optional<String> text(JsonNode payload, String field) {
-        return Optional.ofNullable(payload)
-                .map(node -> node.get(field))
+    private static Optional<String> text(JsonNode event, String field) {
+        return Optional.ofNullable(event.get(field))
                 .filter(node -> !node.isNull())
-                .map(JsonNode::asText);
+                .map(JsonNode::asText)
+                .filter(value -> !value.isBlank());
     }
 }
