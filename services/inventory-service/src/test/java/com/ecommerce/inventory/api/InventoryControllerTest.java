@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 import java.util.Map;
 
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -98,6 +99,17 @@ class InventoryControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.productId").value(1))
                 .andExpect(jsonPath("$.available").value(75));
+    }
+
+    @Test
+    @DisplayName("PUT /api/v1/inventory/{id} with a misspelled field is 400, never a silent stock of 0")
+    void shouldReturn400_whenAvailableQuantityIsMissing() throws Exception {
+        mockMvc.perform(put("/api/v1/inventory/1").with(role("ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quantity\":1000000}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(inventoryService);
     }
 
     @Test
