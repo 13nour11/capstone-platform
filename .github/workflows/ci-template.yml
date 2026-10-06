@@ -12,6 +12,8 @@ on:
 permissions:
   contents: read
   packages: write
+  # On pull_request, paths-filter lists the PR's files and gitleaks its commits through the API.
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.ref }}
