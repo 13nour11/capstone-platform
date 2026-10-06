@@ -290,3 +290,31 @@ on the same setup gave p95 74–94 ms.
 
 Re-run before G4 with Docker Desktop back at 8 GB (`.wslconfig`), other heavy applications closed, and k6 on the
 host as in §7.
+
+**Correction to §8.1.** Lowering Docker Desktop to 8 GB freed memory but did not change the result (load p95 1.23 s /
+1.39 s, 0 % errors), so host memory was not the cause. The real bottlenecks are in §8.2.
+
+### 8.2 Bottlenecks found and fixed on the merged branch
+
+| # | Evidence | Root cause | Fix | Effect |
+|---|---|---|---|---|
+| 1 | Zipkin: ~700 ms inside the gateway before a catalogue read was forwarded; JFR on the gateway: threads waiting on `SecureRandom` (avg 91 ms, max 285 ms) and on the `boundedElastic` scheduler (97 waits, max 212 ms); 4 344 "Redis command timed out" in the gateway while Redis was idle | Spring Security's default request cache is session-backed: on every request it called `getSession()`, which builds a new `WebSession` (SecureRandom id, created on `boundedElastic`) for clients that never send a session cookie | `requestCache(NoOpServerRequestCache)` in the gateway (stateless JWT API). `GatewaySessionTest` counts sessions: 3 per 3 requests before, 0 after | load: `GET /products` p95 1.23 s → 475 ms, `POST /orders` p95 1.39 s → 487 ms, Redis timeouts 4 344 → 26, throughput 73 → 86 req/s |
+| 2 | `scripts/e2e-check.sh` stopped with "gateway cannot reach order-service": `GET /api/v1/orders` answered 504 after 10 s | after the load runs `customer1` owned 27 269 orders and the endpoint returned all of them with their items | paged list (`page`, `size` ≤ 50, default 20, newest first) and index `(customer_id, created_at DESC)` (`V4`) | 504 → 200 in 80 ms with 27 269 orders in the table; E2E 39/39 |
+
+Rejected, measured: the C2 JIT on every service (`TieredStopAtLevel=1` removed) made it worse on this 15 W laptop
+(load p95 1.56 s, VM 93 % busy), as the earlier branch also found; the image flags stay.
+
+**Final runs on the merged branch** (i5-1335U laptop, Docker Desktop 8 GB, k6 in the `grafana/k6` container on the
+same machine, gateway limit raised for the run):
+
+| Run | Result |
+|---|---|
+| Smoke | 190/190 checks, 0 failed requests |
+| Load, 5 min | 0.00 % errors (25 644 requests), 59.0 catalogue req/s; `GET /products` p95 475–932 ms, `POST /orders` p95 487–834 ms across two identical runs |
+| Stress to 150 VUs | 64 159 requests, 0.07 % errors, 97 req/s (before fix 1: 49 891 requests, 75 req/s) |
+
+Verdict on this laptop: NFR-03 throughput and the error budget are met; NFR-02 latency is **not** met here. Under the
+mixed load the Docker VM is 88 % CPU-busy, and identical runs differ by 2× because the host also runs other load
+(Windows used ~30 % of the CPU with the platform idle). A catalogue-only probe at 60 req/s gives p95 74–94 ms. For the
+G4 evidence, run the canonical profile on a machine with spare cores, or on this one with k6 on the host and
+background applications closed, as in §7.
