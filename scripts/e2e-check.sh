@@ -79,10 +79,14 @@ echo "=========================================================="
 echo " End-to-end check against $GW"
 echo "=========================================================="
 
-ADMIN="$(token admin)"
-CUSTOMER="$(token customer1)"
-OTHER="$(token customer2)"
-[[ -n "$ADMIN" && -n "$CUSTOMER" && -n "$OTHER" ]] || { echo "Could not get tokens from Keycloak ($KC)"; exit 2; }
+# Access tokens live 5 minutes (realm accessTokenLifespan) and the run takes longer: fetch fresh ones per section.
+refresh_tokens() {
+  ADMIN="$(token admin)"
+  CUSTOMER="$(token customer1)"
+  OTHER="$(token customer2)"
+  [[ -n "$ADMIN" && -n "$CUSTOMER" && -n "$OTHER" ]] || { echo "Could not get tokens from Keycloak ($KC)"; exit 2; }
+}
+refresh_tokens
 
 # After a (re)start the gateway's load balancer needs one Eureka refresh (~30 s) to see new instances.
 warm_deadline=$((SECONDS + 120))
@@ -112,6 +116,7 @@ codes="$(seq 1 120 | xargs -P 60 -I{} curl -s -o /dev/null -w '%{http_code}\n' "
 check "FR-13 a burst of 120 requests from one client is rate limited (429)" 'grep -q 429 <<<"$codes"'
 
 # ------------------------------------------------------------------ happy path
+refresh_tokens
 section "Order happy path (FR-05 … FR-10, FR-11)"
 before="$(available 1)"
 resp="$(place_order "$CUSTOMER" 1 2)"
@@ -119,18 +124,21 @@ OID="$(json orderId <<<"$resp")"
 check "FR-05 POST /api/v1/orders -> 201 with orderId and PENDING" '[[ -n "$OID" && "$(json status <<<"$resp")" == PENDING ]]'
 check "FR-09 the Saga confirms the order (CONFIRMED)" 'await_status "$OID" CONFIRMED'
 check "FR-07 stock went down by the quantity ($before -> $((before - 2)))" '[[ $(available 1) == $((before - 2)) ]]'
-check "FR-10 the customer lists own orders" 'curl -s "$GW/api/v1/orders" -H "Authorization: Bearer $CUSTOMER" | grep -q "$OID"'
+own_orders="$(curl -s "$GW/api/v1/orders" -H "Authorization: Bearer $CUSTOMER")"
+check "FR-10 the customer lists own orders" '[[ "$own_orders" == *"$OID"* ]]'
 check "FR-10 another customer cannot read it -> 404" '[[ $(code GET "$GW/api/v1/orders/$OID" "$OTHER") == 404 ]]'
 check "FR-11 the confirmation was sent" 'sleep 2; compose logs notification-service 2>/dev/null | grep -q "orderId=$OID: your order is CONFIRMED"'
 check "FR-12 ADMIN reads stock -> 200, CUSTOMER -> 403" '[[ $(code GET "$GW/api/v1/inventory/1" "$ADMIN") == 200 && $(code GET "$GW/api/v1/inventory/1" "$CUSTOMER") == 403 ]]'
 
+refresh_tokens
 section "No stock (FR-06)"
 before="$(available 1)"
-resp_code="$(code POST "$GW/api/v1/orders" "$CUSTOMER" '{"items":[{"productId":1,"quantity":100000}]}')"
+resp_code="$(code POST "$GW/api/v1/orders" "$CUSTOMER" "{\"items\":[{\"productId\":1,\"quantity\":$((before + 1))}]}")"
 check "FR-06 more than the stock -> 409 OUT_OF_STOCK" '[[ $resp_code == 409 ]]'
 check "FR-06 stock unchanged, nothing reserved" '[[ $(available 1) == "$before" ]]'
 
 # ------------------------------------------------------------------ idempotent payment
+refresh_tokens
 section "Payment exactly once (FR-08)"
 KEY="e2e-$RANDOM-$RANDOM"
 BODY="{\"orderId\":\"e2e-$KEY\",\"amount\":10.00}"
@@ -140,6 +148,7 @@ check "FR-08 a retried request returns the same payment, marked as a replay" '[[
 check "FR-08 same key with a different body -> 422" '[[ $(curl -s -o /dev/null -w "%{http_code}" -X POST "$GW/api/v1/payments" -H "Authorization: Bearer $ADMIN" -H "Idempotency-Key: $KEY" -H "Content-Type: application/json" -d "{\"orderId\":\"e2e-$KEY\",\"amount\":99.00}") == 422 ]]'
 
 # ------------------------------------------------------------------ compensation
+refresh_tokens
 section "Payment fails -> compensation (FR-09, FR-11, NFR-05)"
 if set_payment_failure_rate 1.0; then
   before="$(available 2)"
@@ -156,6 +165,7 @@ nfr05="$(compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d invent
 check "NFR-05 no RESERVED stock older than 30 s for a cancelled order (query = $nfr05)" '[[ "$nfr05" == 0 ]]'
 
 # ------------------------------------------------------------------ chaos
+refresh_tokens
 section "Payment down (NFR-01)"
 compose stop payment-service >/dev/null 2>&1
 OID3="$(place_order "$CUSTOMER" 3 1 | json orderId)"
@@ -165,6 +175,7 @@ compose start payment-service >/dev/null 2>&1
 check "NFR-01 when payment returns the same order completes (CONFIRMED)" 'await_status "$OID3" CONFIRMED 180'
 
 # ------------------------------------------------------------------ messaging
+refresh_tokens
 section "Messaging (NFR-10)"
 # A PaymentFailed that cannot be parsed: order-service and inventory-service both consume payment-events.
 compose exec -T kafka bash -c "printf 'eventType:PaymentFailed\te2e-poison|{not json\n' | kafka-console-producer --bootstrap-server kafka:29092 --topic payment-events --property parse.key=true --property key.separator='|' --property parse.headers=true >/dev/null 2>&1"
@@ -175,12 +186,14 @@ check "NFR-10 an unreadable record is parked on payment-events.DLT" 'grep -q "e2
 check "NFR-10 order-service and inventory-service both parked it (DLT names the consumer group)" 'grep -q "order-service" <<<"$dlt" && grep -q "inventory-service" <<<"$dlt"'
 
 # ------------------------------------------------------------------ service-to-service
+refresh_tokens
 section "Service-to-service (FR-14)"
 check "FR-14 inventory /check without a token -> 401 (direct call, bypassing the gateway)" '[[ $(code GET "http://localhost:8084/api/v1/inventory/check?productId=1&quantity=1") == 401 ]]'
 check "FR-14 a customer token is not enough -> 403" '[[ $(code GET "http://localhost:8084/api/v1/inventory/check?productId=1&quantity=1" "$CUSTOMER") == 403 ]]'
 check "FR-14 order-service passes the check with its own SERVICE token (orders above succeeded)" '[[ -n "$OID" ]]'
 
 # ------------------------------------------------------------------ observability
+refresh_tokens
 section "Observability (NFR-06)"
 TRACE="$(compose logs order-service 2>/dev/null | grep "orderId=$OID" | sed -nE 's/.*"traceId":"([0-9a-f]+)".*/\1/p' | head -n 1)"
 check "NFR-06 logs are JSON with a traceId" '[[ -n "$TRACE" ]]'
@@ -196,6 +209,7 @@ check "NFR-06 one trace spans gateway, order, inventory, payment and notificatio
 check "Prometheus scrapes every service" '[[ $(curl -s "http://localhost:9090/api/v1/targets?state=active" | grep -o "\"health\":\"up\"" | wc -l) -ge 8 ]]'
 
 # ------------------------------------------------------------------ bonus
+refresh_tokens
 section "Bonus B2 (FR-16)"
 summary="$(curl -s "$GW/api/v1/analytics/summary?hours=24" -H "Authorization: Bearer $ADMIN")"
 check "FR-16 ADMIN reads the analytics summary with confirmed and cancelled orders" 'grep -q "\"confirmed\":[1-9]" <<<"$summary" && grep -q "\"cancelled\":[1-9]" <<<"$summary"'
