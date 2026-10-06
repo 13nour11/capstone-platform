@@ -148,7 +148,7 @@ machine where Kubernetes can run.
 
 | # | Item | Owner | Action |
 |---|---|---|---|
-| 1 | **All work is on `integration/merge-abc-fixes` (the merge of `integration/merge-abc` and `capstone-integration-fixes`); `main` still holds only the initial commit; no Pull Request exists** | all (team decision) | merge through PRs with one teammate review each (Brief §5, §9). CI triggers on `main`, so it has not run yet |
+| 1 | ~~All work sits outside `main`; no Pull Request exists~~ — **done.** `main` holds the whole platform (91 commits) after Pull Requests #2, #3 and #4, each merged with a teammate's review (Brief §5, §9) | all | closed; CI now triggers on `main`, see item 2 |
 | 2 | CI green on `main`, images in GHCR | C | first run after item 1; the JaCoCo report is the NFR-07 proof (gate verified locally: all modules pass) |
 | 3 | ArgoCD tracks `env/dev`, which does not exist yet | A | `git push origin main:env/dev` after item 1 (deployment/argocd/README) |
 | 4 | Live cluster on the merged branch: pods Ready, ArgoCD Synced/Healthy, screenshot for the slides | A + C | shown on kind before the merge (§10, Docker Desktop with **12 GB**); repeat on the merged branch following deployment/kubernetes/README |
