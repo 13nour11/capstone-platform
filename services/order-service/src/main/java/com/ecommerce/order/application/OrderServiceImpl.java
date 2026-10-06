@@ -28,6 +28,7 @@ import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -237,9 +238,9 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<OrderResponse> getOrdersByCustomerId(String customerId) {
-        log.info("Fetching orders for customer: {}", customerId);
-        return orderRepository.findByCustomerIdOrderByCreatedAtDesc(customerId)
+    public List<OrderResponse> getOrdersByCustomerId(String customerId, int page, int size) {
+        log.info("Fetching orders for customer: {} (page {}, size {})", customerId, page, size);
+        return orderRepository.findByCustomerIdOrderByCreatedAtDesc(customerId, PageRequest.of(page, size))
                 .stream()
                 .map(this::mapToResponse)
                 .toList();

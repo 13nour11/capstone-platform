@@ -14,7 +14,7 @@
 | **Saga** | Choreography over Kafka, transactional outbox in every producer, idempotent consumers, retry → DLT everywhere |
 | **Bonus** | B2 — Order Analytics (primary: CQRS read model + `GET /api/v1/analytics/summary` + Grafana dashboard); also B1 reviews, B3 tenants, B4 low-stock alerts (§10) |
 | **Functional scope** | FR-01 … FR-16: all implemented, all shown live by `scripts/e2e-check.sh` (39/39 checks) |
-| **Tests** | 328 tests in 10 modules, all green with `mvn verify` on the merged branch; JaCoCo gate met in every module; Kafka retry/DLT proven on an embedded broker; PostgreSQL, Redis and Kafka behaviour with Testcontainers |
+| **Tests** | 331 tests in 10 modules, all green with `mvn verify` on the merged branch; JaCoCo gate met in every module; Kafka retry/DLT proven on an embedded broker; PostgreSQL, Redis and Kafka behaviour with Testcontainers |
 | **Not yet shown** | CI on `main`, images in GHCR (§6). Kubernetes + ArgoCD Synced/Healthy was shown on kind before the merge (§10); it has to be re-run on the merged branch. Compose: L0 GREEN and E2E 39/39 on the merged branch (§4) |
 
 ## 2. Architecture
@@ -96,14 +96,14 @@ Inventory call is the Feign read timeout, because Resilience4j's `@TimeLimiter` 
 |---|---|---|
 | config-server | 3 | serves config-repo, health, Prometheus metrics |
 | eureka-server | 3 | registry API, health, Prometheus metrics |
-| api-gateway | 46 | security rules, routes, tenant resolution (B3); `RateLimitIT` on Redis (Testcontainers) |
+| api-gateway | 47 | security rules, routes, tenant resolution (B3), no WebSession per request; `RateLimitIT` on Redis (Testcontainers) |
 | product-service | 46 | Testcontainers ITs (Flyway on PostgreSQL, Redis cache eviction, tenant isolation). `product.application` **100 %** |
-| order-service | 69 | Testcontainers, embedded-Kafka retry → DLT, WireMock resilience and FR-14. `order.application` **85 %**, `order.analytics.application` **93 %** |
+| order-service | 71 | Testcontainers, embedded-Kafka retry → DLT, WireMock resilience and FR-14. `order.application` **85 %**, `order.analytics.application` **93 %** |
 | payment-service | 74 | Testcontainers ITs (idempotency, Saga over Kafka, DLT). `payment.application` **91 %** |
 | inventory-service | 54 | Testcontainers, embedded-Kafka, security slices, B4 `LowStock`. `inventory.application` **78 %** |
 | notification-service | 24 | `NotificationKafkaIT` (retry → DLT, producer contract, B4 alert < 2 s). `notification.application` **100 %** |
 | review-service (B1) | 9 | Testcontainers IT (one review per customer and product). `review.application` **100 %** |
-| **Total** | **328** | `mvn verify` with Docker on `integration/merge-abc-fixes`: **BUILD SUCCESS, 0 failures, 0 errors; JaCoCo gate met in every module** |
+| **Total** | **331** | `mvn verify` with Docker on `integration/merge-abc-fixes`: **BUILD SUCCESS, 0 failures, 0 errors; JaCoCo gate met in every module** |
 
 Live acceptance on the merged branch (fresh `docker compose down -v` + `up --build`, 2026-10-06): `scripts/verify-l0.sh` → **L0 GREEN** (8 infrastructure containers healthy, config-server serves all 9 files, 8 services registered) and
 `scripts/e2e-check.sh` → **E2E GREEN, 39/39** (FR-13 included, on Windows Git Bash).

@@ -12,7 +12,8 @@ public interface OrderService {
 
     OrderResponse getOrderForCustomer(String orderId, String customerId, boolean admin);
 
-    List<OrderResponse> getOrdersByCustomerId(String customerId);
+    /** The customer's orders, newest first; page is 0-based. */
+    List<OrderResponse> getOrdersByCustomerId(String customerId, int page, int size);
 
     void confirmOrder(String eventId, String orderId);
 

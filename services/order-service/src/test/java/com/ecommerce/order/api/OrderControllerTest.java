@@ -30,6 +30,7 @@ import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -182,6 +183,30 @@ class OrderControllerTest {
         mockMvc.perform(get("/api/v1/orders/ord-100").with(role("admin-1", "ADMIN")).accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.orderId").value("ord-100"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders lists the caller's newest 20 orders by default")
+    void shouldListFirstPageOfOwnOrders_byDefault() throws Exception {
+        when(orderService.getOrdersByCustomerId(CUSTOMER_SUB, 0, 20))
+                .thenReturn(List.of(new OrderResponse("ord-100", CUSTOMER_SUB, new BigDecimal("99.98"),
+                        OrderStatus.CONFIRMED, List.of(), Instant.now())));
+
+        mockMvc.perform(get("/api/v1/orders").with(customer()).accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].orderId").value("ord-100"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/orders never returns more than 50 orders, whatever size is asked for")
+    void shouldCapPageSize_whenClientAsksForTooMany() throws Exception {
+        when(orderService.getOrdersByCustomerId(CUSTOMER_SUB, 2, 50)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/orders").param("page", "2").param("size", "100000").with(customer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+
+        verify(orderService).getOrdersByCustomerId(CUSTOMER_SUB, 2, 50);
     }
 
     private static CreateOrderRequest oneItem(int quantity) {
