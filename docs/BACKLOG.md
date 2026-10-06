@@ -21,11 +21,11 @@
 | L3-01 | Inventory Saga participant and NFR-05 sweeper | B | G2 | L | ✅ Done |
 | L3-02 | Payment Saga step, outbox, DLT | C | G2 | L | ✅ Done |
 | L3-03 | Order Saga side: outbox, consumers, retry→DLT | B | G2 | L | ✅ Done |
-| L3-04 | Notification with retry and DLT | A | G2 | M | ✅ Done |
+| L3-04 | Notification with retry and DLT | A | G2 | M | ✅ Done (contract fix at G4) |
 | L4-01 | Images and CI pipeline | C | G2 | L | ⚠️ Built; CI has not run on `main` yet |
-| L4-02 | Kubernetes, Helm, ArgoCD | A + C | G2 | L | ⚠️ Manifests done; live Synced/Healthy not yet shown |
+| L4-02 | Kubernetes, Helm, ArgoCD | A + C | G2 | L | ⚠️ Chart linted/rendered, Secrets + infra applied; live Synced/Healthy to show |
 | L5-01 | One trace across HTTP and Kafka, JSON logs | B | G3 | M | ✅ Done |
-| L5-02 | Load tests, bottleneck, Performance Report | A | G3 | L | ✅ Done (20-VU rerun open) |
+| L5-02 | Load tests, bottleneck, Performance Report | A | G3 | L | ✅ Done (canonical 20-VU run at G4) |
 | L6-01 | Bonus B2 — Order Analytics | C | G4 | L | ✅ Done |
 
 Open items with owners are listed in `docs/FINAL-REPORT.md` §6.
