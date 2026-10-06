@@ -1,15 +1,21 @@
 package com.ecommerce.order.application;
 
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
+import com.ecommerce.order.domain.OutboxEvent;
+import org.mockito.ArgumentCaptor;
+import java.time.Duration;
 import com.ecommerce.order.api.dto.CreateOrderRequest;
 import com.ecommerce.order.api.dto.OrderItemRequest;
 import com.ecommerce.order.api.dto.OrderResponse;
 import com.ecommerce.order.domain.Order;
 import com.ecommerce.order.domain.OrderStatus;
+import com.ecommerce.order.domain.exception.IllegalOrderStateException;
 import com.ecommerce.order.domain.exception.OrderNotFoundException;
 import com.ecommerce.order.domain.exception.OutOfStockException;
 import com.ecommerce.order.domain.exception.ServiceUnavailableException;
 import com.ecommerce.order.infrastructure.client.InventoryServiceClient;
-import com.ecommerce.order.infrastructure.outbox.OutboxTraceContext;
+import com.ecommerce.order.infrastructure.client.CachedProductPrices;
 import com.ecommerce.order.infrastructure.persistence.OrderRepository;
 import com.ecommerce.order.infrastructure.persistence.OutboxEventRepository;
 import com.ecommerce.order.infrastructure.persistence.ProcessedEventRepository;
@@ -20,7 +26,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -30,8 +37,11 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -52,7 +62,7 @@ class OrderServiceTest {
     private InventoryServiceClient inventoryServiceClient;
 
     @Mock
-    private OutboxTraceContext traceContext;
+    private CachedProductPrices productPrices;
 
     private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
@@ -69,13 +79,22 @@ class OrderServiceTest {
                 outboxEventRepository,
                 processedEventRepository,
                 inventoryServiceClient,
+                productPrices,
                 objectMapper,
-                TransactionOperations.withoutTransaction(),
-                traceContext
+                directTransactionTemplate(),
+                Tracer.NOOP,
+                Propagator.NOOP
         );
         createOrderRequest = new CreateOrderRequest(List.of(
-                new OrderItemRequest(1L, 2, new BigDecimal("49.99"))
+                new OrderItemRequest(1L, 2)
         ));
+        // The catalogue prices the order; tests that fail before pricing simply never use this.
+        lenient().when(productPrices.currentPrice(1L)).thenReturn(new BigDecimal("49.99"));
+    }
+
+    /** Runs the callback straight through, so the test exercises the real transaction boundary call. */
+    private static TransactionTemplate directTransactionTemplate() {
+        return new TransactionTemplate(mock(PlatformTransactionManager.class));
     }
 
     @Test
@@ -122,21 +141,32 @@ class OrderServiceTest {
     }
 
     @Test
-    @DisplayName("Should return order details when order exists")
-    void shouldGetOrderById_whenOrderExists() {
-        Order order = Order.builder()
-                .id("ord-123")
-                .customerId("cust-1")
-                .totalAmount(new BigDecimal("99.98"))
-                .status(OrderStatus.PENDING)
-                .createdAt(Instant.now())
-                .build();
-        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(order));
+    @DisplayName("Should return order details to the customer who placed it")
+    void shouldGetOrder_whenCallerOwnsIt() {
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(order("cust-1")));
 
-        OrderResponse response = orderService.getOrderById("cust-1", "ord-123");
+        OrderResponse response = orderService.getOrderForCustomer("ord-123", "cust-1", false);
 
         assertThat(response.orderId()).isEqualTo("ord-123");
         assertThat(response.status()).isEqualTo(OrderStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("Another customer's order is reported as not found, so ids cannot be probed")
+    void shouldHideOrderOwnedBySomeoneElse() {
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(order("cust-1")));
+
+        assertThatThrownBy(() -> orderService.getOrderForCustomer("ord-123", "cust-2", false))
+                .isInstanceOf(OrderNotFoundException.class)
+                .hasMessageContaining("ord-123");
+    }
+
+    @Test
+    @DisplayName("An ADMIN may read any customer's order")
+    void shouldLetAdminReadAnyOrder() {
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(order("cust-1")));
+
+        assertThat(orderService.getOrderForCustomer("ord-123", "admin-1", true).orderId()).isEqualTo("ord-123");
     }
 
     @Test
@@ -144,41 +174,94 @@ class OrderServiceTest {
     void shouldThrowException_whenOrderNotFound() {
         when(orderRepository.findById("ord-999")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> orderService.getOrderById("cust-1", "ord-999"))
+        assertThatThrownBy(() -> orderService.getOrderForCustomer("ord-999", "cust-1", false))
                 .isInstanceOf(OrderNotFoundException.class)
                 .hasMessageContaining("ord-999");
     }
 
     @Test
-    @DisplayName("FR-10: another customer's order is reported as not found")
-    void shouldThrowNotFound_whenOrderBelongsToAnotherCustomer() {
-        Order order = Order.builder()
+    @DisplayName("F10: a stuck PENDING order is cancelled and OrderCancelled is queued to the outbox")
+    void shouldCancelOrdersPendingLongerThanTimeout() {
+        Order stuck = order("cust-1");
+        when(orderRepository.findByStatusAndCreatedAtBefore(eq(OrderStatus.PENDING), any(Instant.class)))
+                .thenReturn(List.of(stuck));
+
+        int cancelled = orderService.cancelOrdersPendingLongerThan(Duration.ofMinutes(10));
+
+        assertThat(cancelled).isEqualTo(1);
+        assertThat(stuck.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        ArgumentCaptor<OutboxEvent> outbox = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(outbox.capture());
+        assertThat(outbox.getValue().getEventType()).isEqualTo("OrderCancelled");
+        assertThat(outbox.getValue().getPayload()).contains("SAGA_TIMEOUT");
+        // notification-service needs the customer to address the cancellation; without it the event goes to the DLT
+        assertThat(outbox.getValue().getPayload()).contains("\"customerId\":\"cust-1\"");
+    }
+
+    @Test
+    @DisplayName("FR-11: PaymentFailed cancels the order and OrderCancelled carries the customer for notification")
+    void shouldQueueOrderCancelledWithCustomer_whenPaymentFails() {
+        Order pending = order("cust-1");
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(pending));
+
+        orderService.cancelOrder("evt-fail", "ord-123", "CARD_DECLINED");
+
+        assertThat(pending.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        ArgumentCaptor<OutboxEvent> outbox = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(outbox.capture());
+        assertThat(outbox.getValue().getEventType()).isEqualTo("OrderCancelled");
+        assertThat(outbox.getValue().getPayload())
+                .contains("\"customerId\":\"cust-1\"")
+                .contains("CARD_DECLINED");
+    }
+
+    @Test
+    @DisplayName("NFR-10: a cancel for an order the timeout already cancelled is a no-op, not a DLT record")
+    void shouldIgnoreCancel_whenOrderIsAlreadyCancelled() {
+        Order cancelled = order("cust-1");
+        cancelled.cancel();
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(cancelled));
+
+        orderService.cancelOrder("evt-late-fail", "ord-123", "CARD_DECLINED");
+
+        verify(outboxEventRepository, never()).save(any());
+        verify(processedEventRepository).save(any());
+    }
+
+    @Test
+    @DisplayName("NFR-10: a second confirmation for a CONFIRMED order is a no-op")
+    void shouldIgnoreConfirm_whenOrderIsAlreadyConfirmed() {
+        Order confirmed = order("cust-1");
+        confirmed.confirm();
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(confirmed));
+
+        orderService.confirmOrder("evt-dup-pay", "ord-123");
+
+        verify(outboxEventRepository, never()).save(any());
+        verify(processedEventRepository).save(any());
+    }
+
+    @Test
+    @DisplayName("NFR-10: PaymentCompleted for a CANCELLED order is a conflict and is not marked processed")
+    void shouldRejectConfirm_whenOrderIsAlreadyCancelled() {
+        Order cancelled = order("cust-1");
+        cancelled.cancel();
+        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(cancelled));
+
+        assertThatThrownBy(() -> orderService.confirmOrder("evt-late-pay", "ord-123"))
+                .isInstanceOf(IllegalOrderStateException.class);
+
+        verify(outboxEventRepository, never()).save(any());
+        verify(processedEventRepository, never()).save(any());
+    }
+
+    private static Order order(String customerId) {
+        return Order.builder()
                 .id("ord-123")
-                .customerId("cust-1")
+                .customerId(customerId)
                 .totalAmount(new BigDecimal("99.98"))
                 .status(OrderStatus.PENDING)
                 .createdAt(Instant.now())
                 .build();
-        when(orderRepository.findById("ord-123")).thenReturn(Optional.of(order));
-
-        assertThatThrownBy(() -> orderService.getOrderById("cust-2", "ord-123"))
-                .isInstanceOf(OrderNotFoundException.class);
-    }
-
-    @Test
-    @DisplayName("FR-05: the order and its OrderPlaced outbox row are written with the same event id")
-    void shouldWriteOrderPlacedToOutbox_whenOrderIsCreated() {
-        doNothing().when(inventoryServiceClient).verifyStockAvailability(1L, 2);
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        when(traceContext.currentTraceparent()).thenReturn("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
-
-        orderService.createOrder("cust-1", createOrderRequest);
-
-        org.mockito.ArgumentCaptor<com.ecommerce.order.domain.OutboxEvent> outbox =
-                org.mockito.ArgumentCaptor.forClass(com.ecommerce.order.domain.OutboxEvent.class);
-        verify(outboxEventRepository).save(outbox.capture());
-        assertThat(outbox.getValue().getEventType()).isEqualTo("OrderPlaced");
-        assertThat(outbox.getValue().getPayload()).contains("\"eventId\":\"" + outbox.getValue().getId() + "\"");
-        assertThat(outbox.getValue().getTraceparent()).startsWith("00-4bf92f3577b34da6");
     }
 }

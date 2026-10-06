@@ -32,10 +32,12 @@ public class OrderKafkaListener {
         String payload = record.value();
         log.info("Received event {} on topic {}", eventType, record.topic());
 
-        JsonNode root = parse(payload);
+        JsonNode root = parse(payload, eventType);
         String eventId = root.has("eventId") ? root.get("eventId").asText() : record.key();
         String orderId = root.has("orderId") ? root.get("orderId").asText() : record.key();
 
+        // No catch-all: an exception reaches the error handler, which retries and then parks the
+        // record on payment-events.DLT (NFR-10). Swallowing it would silently drop a Saga step.
         switch (eventType) {
             case "PaymentCompleted" -> {
                 orderService.confirmOrder(eventId, orderId);
@@ -57,7 +59,7 @@ public class OrderKafkaListener {
         String payload = record.value();
         log.info("Received event {} on topic {}", eventType, record.topic());
 
-        JsonNode root = parse(payload);
+        JsonNode root = parse(payload, eventType);
         String eventId = root.has("eventId") ? root.get("eventId").asText() : record.key();
         String orderId = root.has("orderId") ? root.get("orderId").asText() : record.key();
 
@@ -71,11 +73,14 @@ public class OrderKafkaListener {
         }
     }
 
-    private JsonNode parse(String payload) {
+    private JsonNode parse(String payload, String eventType) {
+        if (payload == null || payload.isBlank()) {
+            throw new InvalidEventException("Empty " + eventType + " payload", null);
+        }
         try {
             return objectMapper.readTree(payload);
         } catch (JsonProcessingException e) {
-            throw new InvalidEventException("Unreadable event payload", e);
+            throw new InvalidEventException("Unreadable " + eventType + " payload", e);
         }
     }
 

@@ -33,9 +33,53 @@ never lost and never charged twice, and the evidence that it runs on Kubernetes 
 
 ---
 
-## 2. Bounded context (Bonus)
+## 2. Bounded Context — Bonus B2: Order Analytics
 
-<!-- Owner: C -->
+**User and pain.** Operations staff (role ADMIN) cannot see order volume, revenue or Saga failures without querying databases by hand.
+
+**Success measure.**
+- `GET /api/v1/analytics/summary` answers in under 200 ms for a 24-hour window.
+- The Grafana dashboard *Order Analytics* shows three panels: orders per minute by status, revenue, and Saga failure rate.
+- A redelivered event never changes a count.
+
+**What B2 owns.**
+- The read model `analytics_order` and its dedup table `analytics_processed_event` (order_db, migrations `V50+`).
+- The consumer group `order-service-analytics` on `order-events`.
+- The endpoint `GET /api/v1/analytics/summary` and the metrics `analytics_orders_total{status}` and `analytics_revenue_total`.
+
+**What B2 does not own.**
+- The `orders` table and every order state change. Order-service writes those; B2 only reads events.
+- No other service calls B2, and B2 calls no service.
+
+### Decision B2-1 — placement of the analytics module
+
+| | |
+|---|---|
+| **Decision** | A package `com.ecommerce.order.analytics` inside order-service, with its own tables and consumer group. |
+| **Options** | (a) Inside order-service, as a separate read side. (b) A new `analytics-service` with its own database. (c) Grafana querying `orders` directly. |
+| **Reason** | (a) adds no deployable, chart, CI job or database. The data is order data, so order_db is its natural home. (c) would couple dashboards to the write model's schema. |
+| **Trade-off** | The projection shares order-service's JVM and connection pool, so a burst of events competes with order requests. Because the package is separate and the consumer group is its own, extracting it later is mechanical. |
+| **Revisit when** | Projection lag shows up on the order API's P95 under k6 load, or a second consumer of the analytics data appears. |
+
+### Decision B2-2 — one row per order instead of hourly counters
+
+| | |
+|---|---|
+| **Decision** | `analytics_order(order_id PK, status, total_amount, placed_at)`. Hourly figures come from a `GROUP BY date_trunc('hour', placed_at)` query. |
+| **Options** | (a) A row per order. (b) Pre-aggregated `order_stats_hourly` counters. |
+| **Reason** | (a) is correct when events arrive out of order, for example `OrderConfirmed` before `OrderPlaced`, and its upserts are naturally idempotent. (b) cannot undo a count once it has been applied. |
+| **Trade-off** | The read cost grows with the number of orders in the window. An index on `placed_at` keeps a 24-hour window cheap at Capstone volumes. |
+| **Revisit when** | The summary query exceeds 200 ms. Then add an hourly rollup, fed from the per-order table. |
+
+### Decision B2-3 — exactly-once effect on an at-least-once topic
+
+| | |
+|---|---|
+| **Decision** | Each event's `eventId` is inserted into `analytics_processed_event` (`ON CONFLICT DO NOTHING`) in the same transaction as the upsert. Metrics move only after commit. |
+| **Options** | (a) A dedup table in the same transaction. (b) Rely on upsert idempotence alone. (c) Kafka transactions. |
+| **Reason** | (a) also protects the metrics, because a redelivered event never reaches the counters. (b) still double-counts metrics. (c) does not cover the database write. |
+| **Trade-off** | One extra row per event. The table grows with the event count; a retention job is deferred. |
+| **Revisit when** | `analytics_processed_event` passes about 1 M rows. Then add time-based cleanup older than the topic's retention. |
 
 ### Bonus B2 — Order Analytics (primary Bonus)
 
@@ -169,7 +213,7 @@ adding fields only (consumers ignore unknown fields); a breaking change gets a n
 | product | `GET /api/v1/products?page&size(≤50)&sort` | — | page of `{id,name,description,price,categoryId,categoryName,averageRating,ratingCount}` | 400 | public (rate limited) |
 | product | `GET /api/v1/products/{id}` | — | one product (same fields) | 404 | public |
 | product | `POST` / `PUT /api/v1/products[/{id}]`, `DELETE /{id}` | `{name,description,price>0,categoryId}` | 201 + Location / 200 / 204 | 400, 404 | ADMIN |
-| order | `POST /api/v1/orders` | `{items:[{productId,quantity>0,unitPrice>0}]}` | 201 `{orderId,customerId,totalAmount,status:PENDING,items,createdAt}` | 400, 409 `OUT_OF_STOCK`, 503 `STOCK_CHECK_UNAVAILABLE` | CUSTOMER |
+| order | `POST /api/v1/orders` | `{items:[{productId,quantity>0}]}` (price comes from product-service) | 201 `{orderId,customerId,totalAmount,status:PENDING,items,createdAt}` | 400, 409 `OUT_OF_STOCK`, 503 `STOCK_CHECK_UNAVAILABLE` | CUSTOMER |
 | order | `GET /api/v1/orders/{id}` · `GET /api/v1/orders` | — | one order · own orders | 404 (also for another customer's order) | CUSTOMER |
 | order (B2) | `GET /api/v1/analytics/summary?hours=1..168` | — | counts per status, revenue, cancelled ratio, hourly rows | 400 | ADMIN |
 | inventory | `GET /api/v1/inventory/check?productId&quantity` | — | `{productId,requestedQuantity,available}` | 400 | SERVICE (not routed) |
@@ -263,9 +307,8 @@ WHERE r.status = 'RESERVED' AND c.cancelled_at < now() - interval '30 seconds';
 
 - Versions are reserved by range in the shared `order-service` folder: Member B `V1`–`V49`, Member C `V50+`.
 - A merged migration is never edited; every change is a new version.
-- B's `V1`–`V3` were all merged before any shared database ran `V50`, so no `out-of-order` setting is needed. A future
-  B migration (`V4`…) on a database that already ran `V50` would need `spring.flyway.out-of-order: true`.
-- Fresh databases (CI, Testcontainers, a new compose volume) apply versions in order.
+- With two version ranges in one folder, `order_db` instances that already ran `V50` will see B's later `V2`… as out of order. order-service therefore needs `spring.flyway.out-of-order: true` (Member B's config block).
+- Fresh databases (CI, Testcontainers, a new compose volume) apply versions in order and are unaffected.
 
 ---
 
@@ -273,44 +316,120 @@ WHERE r.status = 'RESERVED' AND c.cancelled_at < now() - interval '30 seconds';
 
 <!-- Owner: B -->
 
-| Interaction | Style | Why |
+### 5.1 What is synchronous and what is not
+
+| Call | Style | Why |
 |---|---|---|
-| Client → gateway → services | sync HTTP (REST) | the client waits for an answer |
-| order → inventory `/check` | sync HTTP (OpenFeign via Eureka) + Resilience4j | the caller must know *now* whether to accept the order (FR-06) |
-| order → inventory → payment → order → notification | async Kafka (Saga) | the business transaction; the customer does not wait (gets `PENDING` + `orderId`) |
-| inventory → notification (B4), review → product (B1), order → analytics (B2) | async Kafka | read models and alerts; producers must not depend on consumers |
+| client to gateway to any service | sync HTTP | the caller is waiting for the answer |
+| order to inventory `/check` | sync Feign, order-service's own client-credentials token (FR-14) | the order cannot be accepted without knowing whether stock exists |
+| order to product `/{id}` | sync Feign | the order's total must be priced before it is stored |
+| order to payment | **async Kafka** | the customer must not wait for a charge, and payment may be down (NFR-01) |
+| inventory, payment, notification, analytics reacting to a state change | **async Kafka** | the producer's work is already committed; reacting is not its concern |
+| inventory → notification (B4), review → product (B1) | **async Kafka** | read models and alerts; producers must not depend on consumers |
 
-**Decision 5-1 — Saga style.**
-- **DECISION:** Choreography: each participant reacts to the previous event. Order status + one trace per order answer
-  "where is order X?".
-- **OPTIONS:** (a) Choreography; (b) Orchestration with a `SagaState` table in order_db.
-- **REASON:** three participants, a linear flow and no branching rules (Brief decision guide); no coordinator to keep alive.
-- **TRADE-OFF:** the flow is spread over three services; understanding it needs the event table above and Zipkin.
-- **REVISIT:** a branching rule appears (fraud check, partial refunds, loyalty) — then Orchestration, state in PostgreSQL.
+The rule we applied: **synchronous when the caller cannot proceed without the answer, asynchronous otherwise.**
 
-**Decision 5-2 — publishing.**
-- **DECISION:** Transactional Outbox in every producer (order, inventory, payment, review): the event row is written in
-  the business transaction; a poller (`FOR UPDATE SKIP LOCKED`, every 500 ms) sends it and marks it published only
-  after the broker acknowledged it. Consumers are idempotent (`processed_event` / unique keys).
-- **OPTIONS:** (a) outbox + polling; (b) direct `kafkaTemplate.send()` after commit.
-- **REASON:** (b) loses the event when the process dies between commit and send.
-- **TRADE-OFF:** up to ~1 s extra latency and at-least-once duplicates (absorbed by idempotent consumers).
-  **Failure window accepted:** none for loss; duplicates only.
-- **REVISIT:** latency budget below 1 s for a Saga step — then CDC (Debezium) instead of polling.
+### Decision 5-1 — choreography, not an orchestrator
 
-**Decision 5-3 — resilience of the sync call.**
-- **DECISION:** `Retry(CircuitBreaker(TimeLimiter(Bulkhead(call))))` on order → inventory (Retry 2 × 500 ms,
-  CB 50 % of 5 calls, open 5 s, TimeLimiter 2 s, Bulkhead 20). The guarded call returns "in stock?" as a value, so an
-  out-of-stock answer is never a failure. The fallback is **503 `STOCK_CHECK_UNAVAILABLE`**; the order is not accepted.
-- **REASON:** accepting an order optimistically would break FR-06 ("rejected without touching payment").
-- **TRADE-OFF:** while inventory is down, no order can be placed.
-- **REVISIT:** if the business prefers accepting orders and compensating later.
+| | |
+|---|---|
+| **Decision** | The saga is choreographed: each service reacts to the previous service's event. There is no coordinator process. |
+| **Options** | (a) choreography over Kafka; (b) an orchestrator in order-service holding saga state in `order_db`. |
+| **Reason** | Three participants in a straight line with no branching rules. Choreography needs no component that must stay alive for an order to finish, and "where is order X?" is answered by `GET /api/v1/orders/{id}` plus one Zipkin trace. |
+| **Trade-off** | The flow is spread across three services, so understanding it needs this catalogue and the trace. There is no single place that reads out a saga's history. |
+| **Revisit when** | A branching rule appears (fraud check, loyalty, partial refund), or a fourth participant joins. Then move to (b), because the branch logic would otherwise be duplicated across consumers. |
 
-**Order of events (happy path):** `OrderPlaced` → `InventoryReserved` → `PaymentCompleted` → order `CONFIRMED` →
-`OrderConfirmed` → notification + inventory consumes the reservation.
-**Payment fails:** `PaymentFailed` → order `CANCELLED` (`OrderCancelled` → cancel notice) and, in parallel,
-inventory releases the stock → `InventoryReleased`.
-**No stock at reserve time:** `InventoryReservationFailed` → order `CANCELLED`.
+### 5.2 The order flow
+
+```
+POST /api/v1/orders
+  |- sync  order -> inventory /check     (409 OUT_OF_STOCK if no stock, 503 if inventory is down)
+  |- sync  order -> product /{id}        (authoritative price)
+  '- TX    save order PENDING + outbox row OrderPlaced        <- one transaction
+                            |
+      order-events ---------'
+                |
+       inventory: reserve stock, write reservation + outbox InventoryReserved   <- one transaction
+                |
+      inventory-events
+                |
+       payment: charge with Idempotency-Key = orderId, outbox PaymentCompleted | PaymentFailed
+                |
+      payment-events
+                |- order:     PENDING -> CONFIRMED  (outbox OrderConfirmed)
+                |             PENDING -> CANCELLED  (outbox OrderCancelled)
+                '- inventory: consume the reservation, or release it on PaymentFailed
+                |
+      order-events -> notification (customer notice), analytics (projection)
+```
+
+`InventoryReservationFailed` short-circuits the same flow: the order goes straight to `CANCELLED` and payment is never
+reached.
+
+### Decision 5-2 — transactional outbox in every producing service
+
+| | |
+|---|---|
+| **Decision** | order, inventory and payment write the business row and an `outbox_event` row in **one** transaction. A `@Scheduled` poller (500 ms) publishes pending rows, awaits the broker's acknowledgement, then marks them `SENT`. |
+| **Options** | (a) publish directly from the service method; (b) transactional outbox with a poller; (c) CDC (Debezium). |
+| **Reason** | With (a) a crash between the commit and the send loses the event, and a send before the commit can publish an order that was rolled back. (c) needs infrastructure the Capstone does not have. |
+| **Trade-off** | Delivery is **at-least-once**, so every consumer must be idempotent (5-3), and the poll interval adds up to about 500 ms to the saga. |
+| **Revisit when** | The outbox backlog grows under k6 load, or the added latency breaks the `POST /orders` P95 target. |
+
+Two details this design lives or dies by, both of which were wrong at first and are now covered by tests:
+
+- **The transaction must actually exist.** `createOrder` calls the persisting method through a `TransactionTemplate`.
+  A plain `this.persist(...)` call inside the same bean bypasses the Spring proxy, so `@Transactional` does nothing and
+  the order and the outbox row commit separately, which is exactly the dual write the outbox exists to prevent.
+- **The remote calls stay outside it.** The stock check and the price lookup happen *before* the transaction opens, so
+  no database connection is held open across network I/O.
+
+### Decision 5-3 — idempotent consumers
+
+| | |
+|---|---|
+| **Decision** | Every consumer inserts the event's `eventId` into its own `processed_event` table in the same transaction as the state change, and re-checks the state before acting. Payment additionally enforces `UNIQUE(order_id)` and an `Idempotency-Key`. |
+| **Options** | (a) exactly-once via Kafka transactions; (b) at-least-once plus a dedup table; (c) rely on state checks alone. |
+| **Reason** | (b) covers both redelivery and a republish after a crash between `send` and `mark SENT`, and it protects the database, not just the broker. (c) alone cannot tell a redelivery from a legitimate repeat. |
+| **Trade-off** | One extra row per event per consumer, and these tables grow without a retention job. |
+| **Revisit when** | A `processed_event` table passes roughly 1 M rows. |
+
+State checks are the second guard: an order moves to `CONFIRMED` only from `PENDING`, and stock is released only while
+a reservation is `RESERVED`. This is what makes `OrderConfirmed` and `PaymentCompleted`, which both confirm the same
+order, safe to receive in either order or twice.
+
+### Decision 5-4 — how the stock check fails
+
+| | |
+|---|---|
+| **Decision** | Resilience4j on order → inventory, applied from the outside in as **Retry → CircuitBreaker → Bulkhead → Feign call**. The time limit is the Feign connect/read timeout (1 s / 2 s). One fallback only, on the outermost layer, mapping any failure to `503 STOCK_CHECK_UNAVAILABLE`. `OutOfStockException` is ignored by the breaker and not retried. |
+| **Options** | (a) Resilience4j `@TimeLimiter`; (b) Feign timeouts as the time limit; (c) a fallback on every layer (the first version). |
+| **Reason** | `@TimeLimiter` only decorates `CompletableFuture` methods: on a synchronous call it does nothing, so (a) would have been configuration with no effect (it was, until we caught it). (b) bounds the same wait without moving the call to another thread, which would lose the trace and security context. With (c) the breaker's fallback turned the real failure into a new exception that the retry then re-ran, and a sold-out product counted as an outage: three out-of-stock orders opened the circuit and every customer got `503`. |
+| **Trade-off** | The breaker no longer sees "no stock" at all, so a broken inventory that wrongly answers `available: false` for everything would not open the circuit; it shows up as a spike in `409` instead. The bulkhead (25 concurrent calls, 50 ms wait) rejects a burst above that with `503` even when inventory is healthy. |
+| **Revisit when** | order-service moves to a reactive client (then use `@TimeLimiter`), or k6 shows bulkhead rejections at the NFR-02 load. |
+
+Evidence: `OrderSyncIntegrationTest` (sold-out run keeps the circuit `CLOSED` with one call per order; a 3 s inventory is
+cut to `503` within the timeout; repeated `500`s open the circuit and later orders fail fast without calling
+inventory; a full bulkhead rejects at once) and `ResilienceConfigContractTest`, which pins these values in
+`config-repo/order-service.yml`.
+
+### 5.3 Topics, groups and ordering
+
+| Topic | Produced by | Consumer groups |
+|---|---|---|
+| `order-events` | order | `inventory-service`, `notification-service`, `order-service-analytics` |
+| `inventory-events` | inventory | `payment-service`, `order-service` |
+| `payment-events` | payment | `order-service`, `inventory-service` |
+| `order-events.retry-N` | `@RetryableTopic` in notification | `notification-service` |
+| `order-events.DLT`, `inventory-events.DLT`, `payment-events.DLT` | the error handler of any consumer that gave up: notification, inventory, order, payment, analytics | none; read by hand for replay (`kafka_dlt-original-consumer-group` names the consumer) |
+
+- **Ordering** is per order, not global: the key is `orderId`, so one order's events share a partition. Different
+  orders are processed in parallel, which is what lets the platform scale.
+- **Groups** are per service, so adding a consumer (analytics) never steals messages from an existing one.
+- **Replay** is possible for any consumer by resetting its group offset; the dedup tables make that safe.
+- **Retry policy** for the Saga consumers (order, inventory, payment): 3 retries 1 s apart, then the DLT and an
+  `ALERT dead-letter` log line. Unreadable JSON, and in order-service an outcome that contradicts a final state
+  (`PaymentCompleted` for an order already `CANCELLED`), skip the retries: retrying cannot fix them.
 
 ---
 
@@ -318,24 +437,65 @@ inventory releases the stock → `InventoryReleased`.
 
 <!-- Owner: B -->
 
-| # | What fails | Detection | What the user sees | Mitigation / recovery |
-|---|---|---|---|---|
-| 1 | Not enough stock | inventory `/check` answers `available=false` | 409 `OUT_OF_STOCK` | no order row, payment never touched (FR-06) |
-| 2 | Inventory slow | TimeLimiter (2 s), `resilience4j_*` metrics | 503 `STOCK_CHECK_UNAVAILABLE` | retry once, then fallback; nothing persisted (`OrderSyncIntegrationTest`) |
-| 3 | Inventory down | circuit breaker OPEN | fast 503, no hang | half-open probe after 5 s recovers by itself |
-| 4 | Payment declined | `PaymentFailed`, `payments` row FAILED | order CANCELLED + cancel notice | inventory releases the stock, `InventoryReleased` (compensation) |
-| 5 | Payment service down | consumer lag on `inventory-events` | order stays PENDING | events wait in Kafka; on restart the order completes. Reservations of PENDING orders are **not** released by the sweeper (NFR-01) |
-| 6 | Same payment request twice | `Idempotency-Key` hit | the same response | one charge; same key + other body → 422 (FR-08) |
-| 7 | Event delivered twice | `processed_event` / unique key hit | nothing | no second reserve, charge, release, rating or count (NFR-10) |
-| 8 | Consumer keeps failing / poison message | retry metrics, `<topic>.DLT` | delayed or no notice | retried, then parked in the DLT with an alert log (FR-11) |
-| 9 | Kafka down | outbox backlog grows (`outbox_pending`, PENDING rows) | orders still accepted (PENDING) | the poller drains the outbox when Kafka is back; nothing is lost |
-| 10 | Redis down | cache errors logged | slower product reads, still 200 | `CacheErrorHandler` falls back to the DB; the rate limiter fails open |
-| 11 | Missing / expired / forged JWT | 401 count at the gateway | 401 JSON | no downstream call (FR-04) |
-| 12 | Rate limit exceeded | 429 count | 429 `RATE_LIMITED` + `Retry-After` | per-client (per-tenant) bucket refills |
-| 13 | Order cancelled but a reservation survives | NFR-05 query (§4) | nothing | release on `PaymentFailed`/`OrderCancelled` at once; sweeper every 10 s for cancelled orders; late `OrderPlaced` for a cancelled order reserves nothing |
+The Brief asks for at least five. The evidence column names the test that proves each one; nothing here is claimed as
+proven without it.
 
-**Risks raised in the S25 Architecture Review:** *to be filled in by the team* — the review's two risks are not
-recorded in the repository. Rows #5 (payment down) and #7 (duplicate delivery) cover the failure paths the Brief names.
+| # | What fails | How we notice | What the customer sees | How the platform copes | Evidence |
+|---|---|---|---|---|---|
+| F1 | Payment service is down | consumer lag on `inventory-events`; the pod is not ready | the order is accepted and stays `PENDING` | events wait in Kafka; when payment returns it charges and the order reaches `CONFIRMED`. Nothing is lost (NFR-01) | chaos step in §8 |
+| F2 | Kafka is down when an order is placed | `outbox_event` rows stay `PENDING` | the order is accepted as `PENDING` | the outbox row is committed with the order; the poller drains it when the broker returns | `OutboxPublisherTest` |
+| F3 | The same event is delivered twice | a `processed_event` primary-key hit | nothing | the consumer skips it inside the same transaction as its state change (5-3) | `InventoryServiceTest`, `PaymentIdempotencyIT` |
+| F4 | Inventory is down or slow during the stock check | circuit-breaker state on `/actuator/health` | `503 STOCK_CHECK_UNAVAILABLE`, fast | 2 s read timeout, one retry, then the fallback; after repeated failures the circuit opens and orders fail fast without calling inventory. **No order row is written**, so nothing is left half-done (5-4) | `OrderSyncIntegrationTest` |
+| F5 | There is not enough stock | `409` rate on `POST /orders` | `409 OUT_OF_STOCK` | rejected before any order row exists; payment is never reached. Not retried and not counted by the circuit breaker, so sold-out products never block other orders (5-4) | `OrderSyncIntegrationTest` |
+| F6 | The charge is declined | `PaymentFailed` events | the order becomes `CANCELLED` and a notice is sent | inventory releases the reservation on `PaymentFailed` and publishes `InventoryReleased`; stock returns to `available` | `PaymentSagaKafkaIT`, `DeclinedPaymentIT` |
+| F7 | Stock is taken between the check and the reservation | `InventoryReservationFailed` count | the order is created, then becomes `CANCELLED` | the synchronous check is advisory; the atomic conditional `UPDATE` is what actually decides, so the platform never oversells | `StockRepositoryTest` |
+| F8 | The publisher crashes after `send` but before marking `SENT` | the same `eventId` seen twice downstream | nothing | at-least-once plus F3 | covered by F3 |
+| F9 | A notification send keeps failing | the message lands in `order-events.DLT`; `notifications.dlt` counter; `ALERT` log line | the notice is delayed or missing; **the order itself is unaffected** | 4 attempts with exponential backoff, then the DLT and an alert; replay is manual | `NotificationKafkaIT.shouldRetryThenParkInDlt_whenSendKeepsFailing`, toggle `notification.simulate-failure` |
+| F10 | A saga never finishes (payment down for a long time) | orders still `PENDING` past the timeout | the order becomes `CANCELLED` and the customer is told | order-service sweeps `PENDING` orders older than 10 minutes and publishes `OrderCancelled`; inventory releases the stock on it | `PendingOrderSweeperTest`, `OrderServiceTest` |
+| F11 | A cancel event is missed, leaving stock held | the NFR-05 query returns a non-zero count | nothing visible; stock would silently leak | the sweeper (every 10 s) releases `RESERVED` rows whose order is in `cancelled_order`; a late `OrderPlaced` for a cancelled order reserves nothing | `StockRepositoryTest`, NFR-05 query |
+| F12 | Redis is down | cache errors in the logs; the limiter stops counting | product reads are slower but still `200` | reads fall back to the database; the rate limiter **fails open**, availability chosen over protection (D7.4) | documented trade-off |
+| F13 | Keycloak is down | JWKS fetch errors at the gateway | existing tokens keep working until they expire; no new logins | the gateway caches the JWKS keys; order-service reuses its cached service token until it expires, then stock checks fail as F4 | `ServiceTokenIntegrationTest` (token refused → `503`) |
+| F14 | A Saga consumer in order or inventory keeps failing (database error, bug) | `ALERT dead-letter` log line; records on `<topic>.DLT` | the order stays `PENDING` until it is retried or F10 cancels it | 3 retries 1 s apart; a transient error usually clears within them. Then the record is parked on the DLT and the partition keeps moving. Unreadable JSON goes to the DLT at once | `OrderSagaDeadLetterIT`, `InventorySagaDeadLetterIT` |
+| F15 | Payment completes for an order the timeout already cancelled | `ALERT dead-letter` on `payment-events.DLT` | the customer was charged for a cancelled order | not retried (the conflict is permanent); the parked record is the work item for a manual refund (`POST /api/v1/payments/{id}/refund`) | `OrderSagaDeadLetterIT.shouldParkConflictImmediately` |
+| F16 | Inventory is slow and order requests pile up | bulkhead rejections (`503`) | `503 STOCK_CHECK_UNAVAILABLE` at once instead of a hanging request | the bulkhead caps concurrent stock checks at 25, so request threads are not all stuck on one slow dependency | `OrderSyncIntegrationTest.shouldRejectImmediately_whenBulkheadIsFull` |
+
+**NFR-05 query** (must return `0`):
+
+```sql
+SELECT count(*) FROM reservation r
+ WHERE r.status = 'RESERVED'
+   AND r.order_id IN (SELECT order_id FROM cancelled_order)
+   AND r.created_at < now() - interval '30 seconds';
+```
+
+### Decision 6-1 — the sweeper releases stock by saga outcome, never by age
+
+| | |
+|---|---|
+| **Decision** | Inventory's sweeper (every 10 s) releases a reservation only when the order is recorded in `cancelled_order`; a late `OrderPlaced` for a cancelled order reserves nothing. Age alone never releases anything. |
+| **Options** | (a) release any `RESERVED` row older than a TTL; (b) release only reservations of orders known to be cancelled; (c) no sweeper, rely purely on the cancel events. |
+| **Reason** | (a) **oversells**: an order waiting on a slow or restarting payment service is still in flight, and returning its stock while the saga later confirms it sells the same unit twice. We hit exactly this: a confirmed order whose stock had already been given back. (c) leaves no safety net for the one case events cannot cover, namely `OrderCancelled` arriving *before* `OrderPlaced`, where the release finds no reservation and the later reservation is never cleaned up. |
+| **Trade-off** | Inventory now keeps a small `cancelled_order` table, which is a little order state inside the inventory service. It is an append-only record of outcomes, not a copy of the order. |
+| **Revisit when** | `cancelled_order` needs retention, or order-service starts publishing a terminal "saga finished" event that inventory could use directly. |
+
+Because the sweeper no longer bounds a stuck saga, order-service owns that timeout instead (F10). The service that
+knows the order's state is the one that decides the saga is dead.
+
+### Decision 6-2 — a confirmed order with no held stock is an alert, not a silent success
+
+| | |
+|---|---|
+| **Decision** | When inventory confirms an order and finds no `RESERVED` row, because the rows were `RELEASED` or never existed, it logs `ALERT oversell` with the order id and the reservation states. |
+| **Options** | (a) ignore it, as the old code did; (b) log an alert; (c) throw and let the message retry. |
+| **Reason** | This is the signature of the bug in 6-1. Silence is what let it go unnoticed. (c) would retry forever without fixing anything, because the stock is already gone. |
+| **Trade-off** | It is a log line, not a repair. Someone has to act on it. |
+| **Revisit when** | It fires in practice. Then the alert should become a metric with a Prometheus rule. |
+
+**Closed gap (was open until G4):** the Kafka listeners in order-service and inventory-service used to catch every
+exception and only log it, so a transient database error silently dropped a Saga step. They now let the exception
+reach Spring Kafka's `DefaultErrorHandler`: 3 retries, then `<topic>.DLT` with an alert (F14), the same design as
+payment-service. A repeated outcome (`CONFIRMED` twice, `CANCELLED` twice) is a no-op rather than an error, so only
+real conflicts reach the DLT (F15).
 
 ---
 
@@ -343,7 +503,7 @@ recorded in the repository. Rows #5 (payment down) and #7 (duplicate delivery) c
 
 <!-- Owner: A -->
 
-### 7.1 Roles per endpoint (enforced at the gateway; product, inventory, payment and review check again)
+### 7.1 Roles per endpoint (enforced at the gateway, and again in each service)
 
 | Endpoint | Access | Enforced by |
 |---|---|---|
@@ -361,17 +521,13 @@ recorded in the repository. Rows #5 (payment down) and #7 (duplicate delivery) c
 401/403/429 bodies follow the same RFC 7807 contract as service errors (`code` = `UNAUTHORIZED` / `FORBIDDEN` / `RATE_LIMITED`).
 
 **D7.1 — Where JWTs are validated**
-- **DECISION:** the gateway validates every token (NFR-04). product, inventory, payment and review-service are also
-  Resource Servers and check roles themselves. order-service and notification-service rely on the gateway: order reads
-  the customer from `X-User-Id` (set by the gateway from the JWT, never defaulted), notification serves only the
-  ADMIN alert stream behind the gateway.
-- **OPTIONS:** (a) gateway only, services trust `X-User-*`; (b) gateway + every service.
-- **REASON:** the services that hold other services' trust (inventory `/check`, payment) or public write paths
-  validate again; order and notification were built on the gateway contract and the Brief requires validation at the gateway.
-- **TRADE-OFF:** inside the cluster, a pod that can reach order-service directly can spoof `X-User-Id`. Accepted for the
-  Capstone; the services are not exposed outside the cluster network.
-- **REVISIT:** before any shared or production cluster: make order-service a Resource Server (customer id = `sub`) or
-  add NetworkPolicies so only the gateway can reach it.
+- **DECISION:** Gateway *and* product, order, inventory, payment and review-service are OAuth2 Resource Servers
+  (Keycloak JWKS, `iss` checked). notification-service serves only the ADMIN alert stream (B4) behind the gateway
+  and relies on the gateway's check.
+- **OPTIONS:** (a) gateway only, services trust `X-User-*`; (b) gateway + services.
+- **REASON:** pods are reachable inside the cluster; a header is trivially forged by anything that gets past the gateway.
+- **TRADE-OFF:** each request verifies the signature twice (cheap: JWKS is cached), and every service needs the issuer settings.
+- **REVISIT:** if a service mesh with mTLS and authorization policies (Istio) is introduced, services could trust mesh identity instead.
 
 **D7.2 — Identity headers**
 - **DECISION:** the gateway removes every incoming `X-User-*` header, then sets `X-User-Id` (sub) and `X-User-Roles` from the validated token.
@@ -395,7 +551,7 @@ recorded in the repository. Rows #5 (payment down) and #7 (duplicate delivery) c
 ### 7.2 Token propagation
 
 | Call | Credential |
-|---|---|
+| Client → gateway → service | the user's bearer JWT, forwarded unchanged (product, order, inventory, payment and review validate it again), plus `X-User-Id`, `X-User-Roles`, `X-Tenant-Id` set by the gateway |
 | Client → gateway → service | the user's bearer JWT, forwarded unchanged (product, inventory, payment and review validate it again), plus `X-User-Id`, `X-User-Roles`, `X-Tenant-Id` set by the gateway |
 | order-service → inventory-service `/check` (Feign) | **client credentials** of confidential client `order-service` (realm role `SERVICE`, FR-14), not the user's token |
 | Saga events (Kafka) | no token: the broker is internal; identity fields (customer id) are copied into the event payload |
@@ -438,7 +594,7 @@ from the environment at import. Services read passwords only from environment va
 **D7.7 — Observability.** Micrometer Tracing (Brave) → Zipkin at sampling 1.0; Kafka template and listener observation on,
 so `traceparent` rides in the record headers; the outboxes store the trace of the writing transaction and continue it
 when they publish, so one traceId spans gateway → order → Kafka → inventory → payment → order → notification.
-Logs are JSON (ECS) with `traceId`/`spanId`. Prometheus scrapes `/actuator/prometheus`; Grafana provisions the dashboards.
+Logs are JSON (logstash format) with `traceId`, `spanId` and `service`. Prometheus scrapes `/actuator/prometheus`; Grafana provisions the dashboards.
 
 **Replaced Defaults:** none. Eureka, Config Server, Keycloak Resource Server, Helm and ArgoCD are all kept as in the Brief.
 
