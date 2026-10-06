@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: zipkin
+  namespace: ecommerce
+  labels:
+    app: zipkin
+spec:
+  type: NodePort
+  selector:
+    app: zipkin
+  ports:
+    - name: http
+      port: 9411
+      nodePort: 30411
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zipkin
+  namespace: ecommerce
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zipkin
+  template:
+    metadata:
+      labels:
+        app: zipkin
+    spec:
+      containers:
+        - name: zipkin
+          image: openzipkin/zipkin:3
+          ports:
+            - containerPort: 9411
+          env:
+            # Same as compose: bound the in-memory span store to what the default heap holds
+            - name: MEM_MAX_SPANS
+              value: "20000"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9411
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 256Mi }
+            limits: { memory: 384Mi }

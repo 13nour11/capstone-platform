@@ -1,0 +1,26 @@
+spring:
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  kafka:
+    bootstrap-servers: ${spring.embedded.kafka.brokers:localhost:9092}
+    consumer:
+      auto-offset-reset: earliest
+    listener:
+      auto-startup: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8180/realms/ecommerce-platform
+          jwk-set-uri: http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/certs
+
+management:
+  tracing:
+    sampling:
+      probability: 0.0
+
+outbox:
+  scheduler:
+    enabled: false

@@ -1,0 +1,44 @@
+# One ArgoCD Application per service: the shared Helm chart + deployment/helm/values/<service>.yaml.
+# automated + selfHeal: a manual change in the cluster (kubectl scale/edit) is reverted to Git.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: services
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - name: config-server
+          - name: eureka-server
+          - name: api-gateway
+          - name: product-service
+          - name: inventory-service
+          - name: order-service
+          - name: payment-service
+          - name: notification-service
+          - name: review-service
+  template:
+    metadata:
+      name: '{{.name}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/13nour11/capstone-platform.git
+        targetRevision: env/dev
+        path: deployment/helm/microservice
+        helm:
+          releaseName: '{{.name}}'
+          valueFiles:
+            - ../values/{{.name}}.yaml
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: ecommerce
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

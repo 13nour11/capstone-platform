@@ -1,0 +1,12 @@
+# Shadows src/main/resources/application.yml: tests never reach shared infrastructure
+# (no Config Server import, no Eureka registration).
+spring:
+  application:
+    name: review-service
+  cloud:
+    config:
+      enabled: false
+
+eureka:
+  client:
+    enabled: false

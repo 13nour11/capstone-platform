@@ -1,0 +1,56 @@
+server:
+  port: 8084
+
+spring:
+  datasource:
+    # Containers and pods override these with SPRING_DATASOURCE_* (one login per service database, NFR-04)
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/inventory_db
+    username: inventory_user
+    password: ${INVENTORY_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: false
+    show-sql: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+  kafka:
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+    consumer:
+      group-id: inventory-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+inventory:
+  outbox:
+    poll-interval-ms: 500
+  sweeper:
+    # NFR-05: reservations of cancelled orders are released within 10 s (the requirement allows 30 s)
+    fixed-delay-ms: 10000
+  low-stock:
+    # B4: a product with fewer available units raises one LowStock alert
+    threshold: 5
+  kafka:
+    topics:
+      order-events: order-events
+      inventory-events: inventory-events
+      payment-events: payment-events
+      inventory-alerts: inventory-alerts
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always

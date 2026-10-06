@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    config:
+      enabled: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Never contacted: tests authenticate with mockJwt() or send malformed tokens
+          jwk-set-uri: http://localhost:1/certs
+
+eureka:
+  client:
+    enabled: false

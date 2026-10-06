@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper
+  namespace: ecommerce
+  labels:
+    app: zookeeper
+spec:
+  selector:
+    app: zookeeper
+  ports:
+    - name: client
+      port: 2181
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zookeeper
+  namespace: ecommerce
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: zookeeper
+          image: confluentinc/cp-zookeeper:7.6.1
+          ports:
+            - containerPort: 2181
+          env:
+            - name: ZOOKEEPER_CLIENT_PORT
+              value: "2181"
+            - name: KAFKA_HEAP_OPTS
+              value: -Xmx128m -Xms128m
+          readinessProbe:
+            exec:
+              command: ["cub", "zk-ready", "localhost:2181", "5"]
+            periodSeconds: 10
+            timeoutSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 192Mi }
+            limits: { memory: 256Mi }

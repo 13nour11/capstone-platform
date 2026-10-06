@@ -1,0 +1,20 @@
+image:
+  repository: ghcr.io/13nour11/capstone-platform/api-gateway
+  tag: latest   # CI commits the git sha here on the env/dev branch
+
+containerPort: 8080
+service:
+  port: 8080
+  # Reached from the host through kind-config.yaml (hostPort 30080)
+  type: NodePort
+  nodePort: 30080
+
+env:
+  CONFIG_SERVER_URL: http://config-server:8888
+  EUREKA_URL: http://eureka-server:8761/eureka/
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
+  # Must equal the iss claim: Keycloak's KC_HOSTNAME (kind maps host 8180 to the Keycloak NodePort)
+  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:8180/realms/ecommerce-platform
+  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8180/realms/ecommerce-platform/protocol/openid-connect/certs
+  SPRING_DATA_REDIS_HOST: redis

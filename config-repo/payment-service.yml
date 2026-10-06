@@ -1,0 +1,60 @@
+server:
+  port: 8083
+
+spring:
+  datasource:
+    # Containers and pods override these with SPRING_DATASOURCE_* (one login per service database, NFR-04)
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/payment_db
+    username: payment_user
+    password: ${PAYMENT_DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      auto-offset-reset: earliest
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Tokens carry the public issuer; keys are fetched over the internal network.
+          issuer-uri: ${SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI:http://localhost:8180/realms/ecommerce-platform}
+          jwk-set-uri: ${SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI:http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/certs}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+
+payment:
+  simulation:
+    # The only place the failure rate is set (0.0 = never declines, 1.0 = always declines).
+    failure-rate: ${PAYMENT_SIMULATION_FAILURE_RATE:0.0}
+
+outbox:
+  poll-interval-ms: 500
+  batch-size: 50
+  send-timeout: 5s

@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: ecommerce
+  labels:
+    app: keycloak
+spec:
+  type: NodePort
+  selector:
+    app: keycloak
+  ports:
+    - name: http
+      port: 8180
+      nodePort: 30180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: ecommerce
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.3
+          args: ["start-dev", "--import-realm"]
+          ports:
+            - containerPort: 8180
+            - containerPort: 9000   # management: /health/*
+          # KC_BOOTSTRAP_ADMIN_PASSWORD plus the realm placeholders ORDER_SERVICE_CLIENT_SECRET and KC_TEST_USER_PASSWORD
+          envFrom:
+            - secretRef:
+                name: keycloak-admin
+          env:
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: admin
+            - name: KC_HTTP_PORT
+              value: "8180"
+            # kind maps host 8180 to this NodePort, so tokens keep the issuer services expect (same as compose).
+            - name: KC_HOSTNAME
+              value: http://localhost:8180
+            - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
+              value: "true"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: JAVA_OPTS_APPEND
+              value: -Xmx512m
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 9000
+            initialDelaySeconds: 90
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits: { memory: 768Mi }
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+      volumes:
+        - name: realm
+          secret:
+            secretName: keycloak-realm

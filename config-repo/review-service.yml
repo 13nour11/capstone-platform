@@ -1,0 +1,20 @@
+server:
+  port: 8086
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/review_db
+    username: review_user
+    password: ${REVIEW_DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  kafka:
+    producer:
+      properties:
+        enable.idempotence: true
+
+outbox:
+  poll-interval-ms: 500
+  batch-size: 50
+  send-timeout: 5s

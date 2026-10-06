@@ -1,0 +1,35 @@
+server:
+  port: 8085
+
+spring:
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: notification-service
+      auto-offset-reset: earliest
+
+notification:
+  # Demo switch for the DLT path (FR-11): every send fails, so messages go retry -> .DLT
+  simulate-failure: ${NOTIFICATION_SIMULATE_FAILURE:false}
+  retry:
+    attempts: 4
+    delay-ms: 1000
+    multiplier: 2.0
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      # /actuator/health/liveness + /readiness: used by the Docker HEALTHCHECK and the Helm probes
+      probes:
+        enabled: true
