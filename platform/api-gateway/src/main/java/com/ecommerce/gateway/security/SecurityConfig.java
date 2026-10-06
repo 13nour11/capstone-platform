@@ -13,6 +13,7 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
 import org.springframework.security.web.server.ServerAuthenticationEntryPoint;
 import org.springframework.security.web.server.authorization.ServerAccessDeniedHandler;
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository;
+import org.springframework.security.web.server.savedrequest.NoOpServerRequestCache;
 
 /**
  * The gateway is the trust boundary: every JWT is validated here (FR-04) and each path gets a role rule.
@@ -35,6 +36,10 @@ public class SecurityConfig {
         return http
                 .csrf(ServerHttpSecurity.CsrfSpec::disable)
                 .securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
+                // Stateless API: the default request cache calls getSession() on every request, which creates a
+                // WebSession (SecureRandom id, built on boundedElastic) per call. Under load that contention put
+                // ~700 ms in front of every routed request (Performance Report §8.2).
+                .requestCache(cache -> cache.requestCache(NoOpServerRequestCache.getInstance()))
                 .authorizeExchange(exchanges -> exchanges
                         .pathMatchers("/actuator/health/**", "/actuator/info", "/actuator/prometheus").permitAll()
                         .pathMatchers(HttpMethod.GET, "/api/v1/products/**").permitAll()
