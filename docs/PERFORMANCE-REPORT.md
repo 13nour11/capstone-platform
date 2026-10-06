@@ -276,3 +276,17 @@ Result on that branch after the three fixes (5-minute `load-test.js`): `GET /pro
 
 These numbers were measured on the two branches before the merge. Re-run smoke, load and stress on the merged branch
 before quoting a final figure.
+
+### 8.1 First run on the merged branch (2026-10-06): not a valid measurement
+
+k6 ran from the `grafana/k6` container against the merged branch (fresh compose, gateway limit raised to 5000/s).
+Smoke passed (190/190 checks, 0 failed requests). Load and stress returned **0 % errors**, but `GET /products` p95
+1.29–1.47 s and `POST /orders` p95 1.36–1.5 s; a repeat load run also opened the inventory circuit breaker (12 % of
+orders 503). This run is **not** quoted as a result: the host was starved. Windows showed 62 % CPU with the platform
+idle and 0.8 GB of 15.7 GB RAM free, because Docker Desktop had been raised to 12 GB for kind. Zipkin traces showed
+every service slow at trivial steps (66 ms to validate a token, ~700 ms in the gateway before forwarding a catalogue
+read, Redis rate-limiter calls timing out at 500 ms while Redis itself was idle). A catalogue-only probe at 60 req/s
+on the same setup gave p95 74–94 ms.
+
+Re-run before G4 with Docker Desktop back at 8 GB (`.wslconfig`), other heavy applications closed, and k6 on the
+host as in §7.
