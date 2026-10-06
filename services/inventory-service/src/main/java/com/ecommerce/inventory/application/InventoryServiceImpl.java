@@ -198,13 +198,23 @@ public class InventoryServiceImpl implements InventoryService {
             log.info("Event {} already processed by {}, skipping confirm for order: {}", eventId, CONSUMER_NAME, orderId);
             return;
         }
-        for (Reservation reservation : reservationRepository.findByOrderId(orderId)) {
+        List<Reservation> reservations = reservationRepository.findByOrderId(orderId);
+        for (Reservation reservation : reservations) {
             if (reservation.getStatus() == ReservationStatus.RESERVED) {
                 stockRepository.confirmStockAtomic(reservation.getProductId(), reservation.getQuantity());
                 reservation.setStatus(ReservationStatus.CONSUMED);
                 reservationRepository.save(reservation);
                 log.info("Consumed stock reservation for order: {} product: {}", orderId, reservation.getProductId());
             }
+        }
+
+        // Both OrderConfirmed and PaymentCompleted confirm the same order, so finding the rows
+        // already CONSUMED is the normal second pass. Stock that was released, or never reserved
+        // at all, means the order was confirmed against goods nobody is holding (ADD Decision 6-2).
+        if (reservations.isEmpty() || reservations.stream().anyMatch(r -> r.getStatus() == ReservationStatus.RELEASED)) {
+            log.error("ALERT oversell: order {} confirmed without held stock (reservations: {})",
+                    orderId,
+                    reservations.stream().map(r -> r.getProductId() + "=" + r.getStatus()).toList());
         }
         markProcessed(eventId);
     }

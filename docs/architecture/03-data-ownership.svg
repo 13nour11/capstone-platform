@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1140" height="700" viewBox="0 0 1140 700" font-family="Segoe UI, Arial, sans-serif">
+  <title>Where data lives — table to database, per service</title>
+  <desc>Database per service on one PostgreSQL instance. Each service owns one database and its Flyway migrations; no service reads another service's tables. order_db also holds the Bonus B2 read model (Member C, V50+). Redis holds the product cache and the gateway rate-limit buckets; Kafka carries the events between services. notification-service has no database.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#5F5E5A"/></marker>
+  </defs>
+  <rect width="1140" height="700" fill="#FFFFFF"/>
+  <text x="30" y="28" font-size="16" font-weight="600" fill="#2C2C2A" text-anchor="start">Where data lives — one database per service (Flyway owns every schema, ddl-auto=validate)</text>
+  <rect x="30" y="40" width="12" height="12" rx="2" fill="#185FA5"/>
+  <text x="48" y="50" font-size="11" fill="#5F5E5A" text-anchor="start">owner A</text>
+  <rect x="120" y="40" width="12" height="12" rx="2" fill="#3B6D11"/>
+  <text x="138" y="50" font-size="11" fill="#5F5E5A" text-anchor="start">owner B</text>
+  <rect x="210" y="40" width="12" height="12" rx="2" fill="#854F0B"/>
+  <text x="228" y="50" font-size="11" fill="#5F5E5A" text-anchor="start">owner C</text>
+  <text x="310" y="50" font-size="11" fill="#5F5E5A" text-anchor="start">No service reads another service's database: data crosses boundaries only through REST (sync) or Kafka events (async).</text>
+  <rect x="26" y="200" width="1094" height="304" rx="8" fill="#F7F6F2" stroke="#888780" stroke-dasharray="6 4"/>
+  <text x="40" y="494" font-size="12" font-weight="600" fill="#5F5E5A" text-anchor="start">PostgreSQL 16 — one instance (compose service postgres, Kubernetes StatefulSet postgres); one database per service</text>
+  <rect x="40" y="72" width="250" height="52" rx="4" fill="#F1EFE8" stroke="#185FA5"/>
+  <rect x="40" y="72" width="6" height="52" rx="2" fill="#185FA5"/>
+  <text x="165.0" y="94" font-size="14" font-weight="600" fill="#2C2C2A" text-anchor="middle">product-service</text>
+  <text x="165.0" y="112" font-size="11" fill="#5F5E5A" text-anchor="middle">:8081 · owner A</text>
+  <line x1="165.0" y1="124" x2="165.0" y2="222" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="171.0" y="170" font-size="10" fill="#888780" text-anchor="start">JPA + Flyway</text>
+  <rect x="40" y="224" width="250" height="250" rx="6" fill="#FFFFFF" stroke="#5F5E5A"/>
+  <text x="52" y="246" font-size="14" font-weight="600" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">product_db</text>
+  <line x1="40" y1="256" x2="290" y2="256" stroke="#D3D1C7"/>
+  <rect x="52" y="266" width="4" height="16" fill="#185FA5"/>
+  <text x="64" y="279" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">categories</text>
+  <text x="278" y="279" font-size="11" fill="#888780" text-anchor="end">V1</text>
+  <rect x="52" y="296" width="4" height="16" fill="#185FA5"/>
+  <text x="64" y="309" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">products</text>
+  <text x="278" y="309" font-size="11" fill="#888780" text-anchor="end">V1</text>
+  <rect x="52" y="326" width="4" height="16" fill="#185FA5"/>
+  <text x="64" y="339" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">(seed data)</text>
+  <text x="278" y="339" font-size="11" fill="#888780" text-anchor="end">V2</text>
+  <rect x="312" y="72" width="250" height="52" rx="4" fill="#F1EFE8" stroke="#3B6D11"/>
+  <rect x="312" y="72" width="6" height="52" rx="2" fill="#3B6D11"/>
+  <text x="437.0" y="94" font-size="14" font-weight="600" fill="#2C2C2A" text-anchor="middle">order-service</text>
+  <text x="437.0" y="112" font-size="11" fill="#5F5E5A" text-anchor="middle">:8082 · owner B (+ C: analytics)</text>
+  <line x1="437.0" y1="124" x2="437.0" y2="222" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="443.0" y="170" font-size="10" fill="#888780" text-anchor="start">JPA + Flyway</text>
+  <rect x="312" y="224" width="250" height="250" rx="6" fill="#FFFFFF" stroke="#5F5E5A"/>
+  <text x="324" y="246" font-size="14" font-weight="600" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">order_db</text>
+  <line x1="312" y1="256" x2="562" y2="256" stroke="#D3D1C7"/>
+  <rect x="324" y="266" width="4" height="16" fill="#3B6D11"/>
+  <text x="336" y="279" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">orders</text>
+  <text x="550" y="279" font-size="11" fill="#888780" text-anchor="end">V1</text>
+  <rect x="324" y="296" width="4" height="16" fill="#3B6D11"/>
+  <text x="336" y="309" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">order_items</text>
+  <text x="550" y="309" font-size="11" fill="#888780" text-anchor="end">V1</text>
+  <rect x="324" y="326" width="4" height="16" fill="#3B6D11"/>
+  <text x="336" y="339" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">outbox_event</text>
+  <text x="550" y="339" font-size="11" fill="#888780" text-anchor="end">V2</text>
+  <rect x="324" y="356" width="4" height="16" fill="#3B6D11"/>
+  <text x="336" y="369" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">processed_event</text>
+  <text x="550" y="369" font-size="11" fill="#888780" text-anchor="end">V3</text>
+  <rect x="324" y="386" width="4" height="16" fill="#854F0B"/>
+  <text x="336" y="399" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">analytics_order</text>
+  <text x="550" y="399" font-size="11" fill="#888780" text-anchor="end">V50</text>
+  <rect x="324" y="416" width="4" height="16" fill="#854F0B"/>
+  <text x="336" y="429" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">analytics_processed_event</text>
+  <text x="550" y="429" font-size="11" fill="#888780" text-anchor="end">V50</text>
+  <line x1="322" y1="378" x2="552" y2="378" stroke="#854F0B" stroke-dasharray="3 3"/>
+  <text x="550" y="464" font-size="10" fill="#854F0B" text-anchor="end">B: V1–V49 · C (Bonus B2): V50+</text>
+  <rect x="584" y="72" width="250" height="52" rx="4" fill="#F1EFE8" stroke="#3B6D11"/>
+  <rect x="584" y="72" width="6" height="52" rx="2" fill="#3B6D11"/>
+  <text x="709.0" y="94" font-size="14" font-weight="600" fill="#2C2C2A" text-anchor="middle">inventory-service</text>
+  <text x="709.0" y="112" font-size="11" fill="#5F5E5A" text-anchor="middle">:8084 · owner B</text>
+  <line x1="709.0" y1="124" x2="709.0" y2="222" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="715.0" y="170" font-size="10" fill="#888780" text-anchor="start">JPA + Flyway</text>
+  <rect x="584" y="224" width="250" height="250" rx="6" fill="#FFFFFF" stroke="#5F5E5A"/>
+  <text x="596" y="246" font-size="14" font-weight="600" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">inventory_db</text>
+  <line x1="584" y1="256" x2="834" y2="256" stroke="#D3D1C7"/>
+  <rect x="596" y="266" width="4" height="16" fill="#3B6D11"/>
+  <text x="608" y="279" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">stock</text>
+  <text x="822" y="279" font-size="11" fill="#888780" text-anchor="end">V1</text>
+  <rect x="596" y="296" width="4" height="16" fill="#3B6D11"/>
+  <text x="608" y="309" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">reservation</text>
+  <text x="822" y="309" font-size="11" fill="#888780" text-anchor="end">V1, V3</text>
+  <rect x="596" y="326" width="4" height="16" fill="#3B6D11"/>
+  <text x="608" y="339" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">outbox_event</text>
+  <text x="822" y="339" font-size="11" fill="#888780" text-anchor="end">V2</text>
+  <rect x="596" y="356" width="4" height="16" fill="#3B6D11"/>
+  <text x="608" y="369" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">processed_event</text>
+  <text x="822" y="369" font-size="11" fill="#888780" text-anchor="end">V2</text>
+  <rect x="596" y="386" width="4" height="16" fill="#3B6D11"/>
+  <text x="608" y="399" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">cancelled_order</text>
+  <text x="822" y="399" font-size="11" fill="#888780" text-anchor="end">V3</text>
+  <rect x="856" y="72" width="250" height="52" rx="4" fill="#F1EFE8" stroke="#854F0B"/>
+  <rect x="856" y="72" width="6" height="52" rx="2" fill="#854F0B"/>
+  <text x="981.0" y="94" font-size="14" font-weight="600" fill="#2C2C2A" text-anchor="middle">payment-service</text>
+  <text x="981.0" y="112" font-size="11" fill="#5F5E5A" text-anchor="middle">:8083 · owner C</text>
+  <line x1="981.0" y1="124" x2="981.0" y2="222" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="987.0" y="170" font-size="10" fill="#888780" text-anchor="start">JPA + Flyway</text>
+  <rect x="856" y="224" width="250" height="250" rx="6" fill="#FFFFFF" stroke="#5F5E5A"/>
+  <text x="868" y="246" font-size="14" font-weight="600" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">payment_db</text>
+  <line x1="856" y1="256" x2="1106" y2="256" stroke="#D3D1C7"/>
+  <rect x="868" y="266" width="4" height="16" fill="#854F0B"/>
+  <text x="880" y="279" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">payments</text>
+  <text x="1094" y="279" font-size="11" fill="#888780" text-anchor="end">V1</text>
+  <rect x="868" y="296" width="4" height="16" fill="#854F0B"/>
+  <text x="880" y="309" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">idempotency_keys</text>
+  <text x="1094" y="309" font-size="11" fill="#888780" text-anchor="end">V1</text>
+  <rect x="868" y="326" width="4" height="16" fill="#854F0B"/>
+  <text x="880" y="339" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">processed_event</text>
+  <text x="1094" y="339" font-size="11" fill="#888780" text-anchor="end">V1</text>
+  <rect x="868" y="356" width="4" height="16" fill="#854F0B"/>
+  <text x="880" y="369" font-size="12" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">outbox_event</text>
+  <text x="1094" y="369" font-size="11" fill="#888780" text-anchor="end">V1</text>
+  <rect x="40" y="540" width="250" height="56" rx="4" fill="#F1EFE8" stroke="#185FA5"/>
+  <rect x="40" y="540" width="6" height="56" rx="2" fill="#185FA5"/>
+  <text x="165.0" y="564" font-size="14" font-weight="600" fill="#2C2C2A" text-anchor="middle">api-gateway</text>
+  <text x="165.0" y="582" font-size="11" fill="#5F5E5A" text-anchor="middle">:8080 · owner A · no database</text>
+  <rect x="312" y="532" width="250" height="92" rx="6" fill="#FFFFFF" stroke="#5F5E5A"/>
+  <text x="324" y="554" font-size="14" font-weight="600" fill="#2C2C2A" text-anchor="start">Redis 7</text>
+  <text x="324" y="576" font-size="11" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">product + products cache (FR-15)</text>
+  <text x="324" y="594" font-size="11" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">rate-limit buckets (FR-13)</text>
+  <text x="324" y="614" font-size="10" fill="#888780" text-anchor="start">cache only: losing it loses no data</text>
+  <line x1="290" y1="568" x2="312" y2="568" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M40 98 L14 98 L14 518 L352 518 L352 530" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="20" y="514" font-size="10" fill="#888780" text-anchor="start">product cache</text>
+  <rect x="584" y="532" width="250" height="92" rx="6" fill="#FFFFFF" stroke="#5F5E5A"/>
+  <text x="596" y="554" font-size="14" font-weight="600" fill="#2C2C2A" text-anchor="start">Kafka</text>
+  <text x="596" y="576" font-size="11" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">order-events · inventory-events</text>
+  <text x="596" y="594" font-size="11" font-family="Consolas, Menlo, monospace" fill="#2C2C2A" text-anchor="start">payment-events · &lt;topic&gt;.DLT</text>
+  <text x="596" y="614" font-size="10" fill="#888780" text-anchor="start">key = orderId; written via each outbox</text>
+  <rect x="856" y="540" width="250" height="56" rx="4" fill="#F1EFE8" stroke="#185FA5"/>
+  <rect x="856" y="540" width="6" height="56" rx="2" fill="#185FA5"/>
+  <text x="981.0" y="564" font-size="14" font-weight="600" fill="#2C2C2A" text-anchor="middle">notification-service</text>
+  <text x="981.0" y="582" font-size="11" fill="#5F5E5A" text-anchor="middle">:8085 · owner A · no database (failures → DLT)</text>
+  <line x1="834" y1="568" x2="856" y2="568" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="30" y="676" font-size="11" fill="#5F5E5A" text-anchor="start">Source of truth: the Flyway migrations in services/*/src/main/resources/db/migration (version shown at the right of each table). Every outbox_event row keeps the W3C traceparent (NFR-06).</text>
+</svg>

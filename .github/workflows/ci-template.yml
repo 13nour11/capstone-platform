@@ -13,6 +13,8 @@ on:
 permissions:
   contents: read
   packages: write
+  # On pull_request, paths-filter lists the PR's files and gitleaks its commits through the API.
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -71,9 +73,34 @@ jobs:
           echo "modules=$modules" >> "$GITHUB_OUTPUT"
           echo "Modules to build: $modules"
 
+  guards:
+    name: Security guards (NFR-04)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: No secrets in Git (whole history)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Every image runs as a non-root user
+        run: |
+          status=0
+          for dockerfile in $(git ls-files '*Dockerfile'); do
+            user=$(grep -E '^USER[[:space:]]' "$dockerfile" | tail -n 1 | awk '{print $2}')
+            case "$user" in
+              ""|root|0|0:*) echo "::error file=$dockerfile::final USER must be a non-root user (found '${user:-none}')"; status=1 ;;
+              *) echo "$dockerfile -> USER $user" ;;
+            esac
+          done
+          exit $status
+
   build:
     name: ${{ matrix.module }}
-    needs: changes
+    needs: [changes, guards]
     if: needs.changes.outputs.modules != '[]'
     runs-on: ubuntu-latest
     strategy:
@@ -108,6 +135,7 @@ jobs:
 
       - name: Test gate (unit + integration tests, JaCoCo report)
         if: steps.module.outputs.ready == 'true'
+        # Every module inherits the JaCoCo agent, report and 60% gate from the root POM.
         run: mvn -B -f "${{ steps.module.outputs.path }}/pom.xml" verify
 
       - name: Coverage gate (service layer >= ${{ env.COVERAGE_MIN }}%)
@@ -115,7 +143,7 @@ jobs:
         run: |
           report="${{ steps.module.outputs.path }}/target/site/jacoco/jacoco.csv"
           if [ ! -f "$report" ]; then
-            echo "::error::No JaCoCo report at $report. Add jacoco-maven-plugin (prepare-agent + report) to the build."
+            echo "::error::No JaCoCo report at $report. If the pom sets surefire <argLine>, start it with @{argLine} so the JaCoCo agent is kept."
             exit 1
           fi
           # CSV columns: GROUP,PACKAGE,CLASS,...,LINE_MISSED(8),LINE_COVERED(9). Service layer = *.application packages.

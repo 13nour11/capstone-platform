@@ -17,21 +17,28 @@ import com.ecommerce.order.domain.event.OrderItemPayload;
 import com.ecommerce.order.domain.event.OrderPlaced;
 import com.ecommerce.order.domain.exception.OrderNotFoundException;
 import com.ecommerce.order.infrastructure.client.InventoryServiceClient;
-import com.ecommerce.order.infrastructure.outbox.OutboxTraceContext;
+import com.ecommerce.order.infrastructure.client.CachedProductPrices;
 import com.ecommerce.order.infrastructure.persistence.OrderRepository;
 import com.ecommerce.order.infrastructure.persistence.OutboxEventRepository;
 import com.ecommerce.order.infrastructure.persistence.ProcessedEventRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.tracing.TraceContext;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -43,40 +50,52 @@ public class OrderServiceImpl implements OrderService {
     private final OutboxEventRepository outboxEventRepository;
     private final ProcessedEventRepository processedEventRepository;
     private final InventoryServiceClient inventoryServiceClient;
+    private final CachedProductPrices productPrices;
     private final ObjectMapper objectMapper;
-    private final TransactionOperations transactions;
-    private final OutboxTraceContext traceContext;
+    private final TransactionTemplate transactionTemplate;
+    private final Tracer tracer;
+    private final Propagator propagator;
 
     public OrderServiceImpl(OrderRepository orderRepository,
                             OutboxEventRepository outboxEventRepository,
                             ProcessedEventRepository processedEventRepository,
                             InventoryServiceClient inventoryServiceClient,
+                            CachedProductPrices productPrices,
                             ObjectMapper objectMapper,
-                            TransactionOperations transactions,
-                            OutboxTraceContext traceContext) {
+                            TransactionTemplate transactionTemplate,
+                            Tracer tracer,
+                            Propagator propagator) {
         this.orderRepository = orderRepository;
         this.outboxEventRepository = outboxEventRepository;
         this.processedEventRepository = processedEventRepository;
         this.inventoryServiceClient = inventoryServiceClient;
+        this.productPrices = productPrices;
         this.objectMapper = objectMapper;
-        this.transactions = transactions;
-        this.traceContext = traceContext;
+        this.transactionTemplate = transactionTemplate;
+        this.tracer = tracer;
+        this.propagator = propagator;
     }
 
     @Override
     public OrderResponse createOrder(String customerId, CreateOrderRequest request) {
         log.info("Processing order placement for customerId: {} with {} items", customerId, request.items().size());
 
-        // 1. Synchronous stock pre-check (OpenFeign + Resilience4j) BEFORE opening DB transaction
+        // 1. Stock pre-check and pricing (OpenFeign + Resilience4j) BEFORE opening the DB
+        // transaction: a remote call inside it would hold a Hikari connection for its whole duration.
+        Map<Long, BigDecimal> prices = new LinkedHashMap<>();
         for (OrderItemRequest item : request.items()) {
             inventoryServiceClient.verifyStockAvailability(item.productId(), item.quantity());
+            prices.computeIfAbsent(item.productId(), productPrices::currentPrice);
         }
 
-        // 2. Persist order and outbox event in ONE database transaction (a self-call would bypass @Transactional)
-        return transactions.execute(status -> persistOrderAndOutbox(customerId, request));
+        // 2. Persist order and outbox event in ONE database transaction. Called through the
+        // TransactionTemplate because a plain self-call would bypass the proxy and leave each
+        // save in its own transaction, which is exactly what the outbox exists to prevent.
+        return transactionTemplate.execute(status -> persistOrderAndOutbox(customerId, request, prices));
     }
 
-    private OrderResponse persistOrderAndOutbox(String customerId, CreateOrderRequest request) {
+    OrderResponse persistOrderAndOutbox(String customerId, CreateOrderRequest request,
+                                        Map<Long, BigDecimal> prices) {
         String orderId = UUID.randomUUID().toString();
 
         BigDecimal totalAmount = BigDecimal.ZERO;
@@ -88,7 +107,8 @@ public class OrderServiceImpl implements OrderService {
                 .build();
 
         for (OrderItemRequest itemReq : request.items()) {
-            OrderItem item = new OrderItem(itemReq.productId(), itemReq.quantity(), itemReq.unitPrice());
+            OrderItem item = new OrderItem(itemReq.productId(), itemReq.quantity(),
+                    prices.get(itemReq.productId()));
             order.addItem(item);
             totalAmount = totalAmount.add(item.getSubtotal());
         }
@@ -109,9 +129,8 @@ public class OrderServiceImpl implements OrderService {
                 .map(item -> new OrderItemPayload(item.getProductId(), item.getQuantity(), item.getUnitPrice()))
                 .toList();
 
-        String placedEventId = UUID.randomUUID().toString();
         OrderPlaced event = new OrderPlaced(
-                placedEventId,
+                UUID.randomUUID().toString(),
                 saved.getId(),
                 saved.getCustomerId(),
                 saved.getTotalAmount(),
@@ -119,7 +138,7 @@ public class OrderServiceImpl implements OrderService {
                 saved.getCreatedAt()
         );
 
-        saveOutboxEvent(placedEventId, "Order", saved.getId(), "OrderPlaced", event);
+        saveOutboxEvent("Order", saved.getId(), "OrderPlaced", event);
 
         log.info("Order placed and OutboxEvent persisted: orderId={}, status=PENDING", saved.getId());
         return mapToResponse(saved);
@@ -132,17 +151,22 @@ public class OrderServiceImpl implements OrderService {
         }
 
         orderRepository.findById(orderId).ifPresent(order -> {
+            // A second success signal for the same order is a no-op. A success for an order that is
+            // already CANCELLED is a real conflict: order.confirm() throws and the record goes to the DLT.
+            if (order.getStatus() == OrderStatus.CONFIRMED) {
+                log.info("Order {} already CONFIRMED; event {} changes nothing", orderId, eventId);
+                return;
+            }
             order.confirm();
             orderRepository.save(order);
 
-            String confirmedEventId = UUID.randomUUID().toString();
             OrderConfirmed event = new OrderConfirmed(
-                    confirmedEventId,
+                    UUID.randomUUID().toString(),
                     order.getId(),
                     order.getCustomerId(),
                     Instant.now()
             );
-            saveOutboxEvent(confirmedEventId, "Order", order.getId(), "OrderConfirmed", event);
+            saveOutboxEvent("Order", order.getId(), "OrderConfirmed", event);
             log.info("Order {} confirmed and OrderConfirmed event queued to outbox", orderId);
         });
 
@@ -156,31 +180,57 @@ public class OrderServiceImpl implements OrderService {
         }
 
         orderRepository.findById(orderId).ifPresent(order -> {
+            // e.g. the Saga timeout cancelled it first, then PaymentFailed arrived: already consistent.
+            if (order.getStatus() == OrderStatus.CANCELLED) {
+                log.info("Order {} already CANCELLED; event {} changes nothing", orderId, eventId);
+                return;
+            }
             order.cancel();
             orderRepository.save(order);
 
-            String cancelledEventId = UUID.randomUUID().toString();
             OrderCancelled event = new OrderCancelled(
-                    cancelledEventId,
+                    UUID.randomUUID().toString(),
                     order.getId(),
                     order.getCustomerId(),
                     reason,
                     Instant.now()
             );
-            saveOutboxEvent(cancelledEventId, "Order", order.getId(), "OrderCancelled", event);
+            saveOutboxEvent("Order", order.getId(), "OrderCancelled", event);
             log.info("Order {} cancelled (reason: {}) and OrderCancelled event queued to outbox", orderId, reason);
         });
 
         markProcessed(eventId, "order-service");
     }
 
+    /**
+     * Cancels orders whose saga never finished (NFR-01 bounded): payment may be down for minutes,
+     * so the timeout is generous and the OrderCancelled event is what frees the reserved stock.
+     */
+    @Override
+    @Transactional
+    public int cancelOrdersPendingLongerThan(Duration timeout) {
+        List<Order> stuck = orderRepository.findByStatusAndCreatedAtBefore(
+                OrderStatus.PENDING, Instant.now().minus(timeout));
+
+        for (Order order : stuck) {
+            order.cancel();
+            orderRepository.save(order);
+            saveOutboxEvent("Order", order.getId(), "OrderCancelled", new OrderCancelled(
+                    UUID.randomUUID().toString(), order.getId(), order.getCustomerId(), "SAGA_TIMEOUT", Instant.now()));
+            log.warn("Order {} cancelled after {} in PENDING; OrderCancelled queued", order.getId(), timeout);
+        }
+        return stuck.size();
+    }
+
+    /**
+     * Someone else's order is reported as not found, so the endpoint cannot be used to discover
+     * which order ids exist.
+     */
     @Override
     @Transactional(readOnly = true)
-    public OrderResponse getOrderById(String customerId, String orderId) {
-        log.info("Fetching order by id: {}", orderId);
-        // FR-10: another customer's order is reported as missing (404), so order ids reveal nothing
+    public OrderResponse getOrderForCustomer(String orderId, String customerId, boolean admin) {
         return orderRepository.findById(orderId)
-                .filter(order -> order.getCustomerId().equals(customerId))
+                .filter(order -> admin || order.getCustomerId().equals(customerId))
                 .map(this::mapToResponse)
                 .orElseThrow(() -> new OrderNotFoundException(orderId));
     }
@@ -195,19 +245,17 @@ public class OrderServiceImpl implements OrderService {
                 .toList();
     }
 
-    private void saveOutboxEvent(String eventId, String aggregateType, String aggregateId, String eventType,
-                                 Object payload) {
+    private void saveOutboxEvent(String aggregateType, String aggregateId, String eventType, Object payload) {
         try {
             String payloadJson = objectMapper.writeValueAsString(payload);
-            // NFR-06: the real W3C trace context of this transaction, continued by the publisher
-            String traceparent = traceContext.currentTraceparent();
+
             OutboxEvent outboxEvent = new OutboxEvent(
-                    eventId,
+                    UUID.randomUUID().toString(),
                     aggregateType,
                     aggregateId,
                     eventType,
                     payloadJson,
-                    traceparent,
+                    currentTraceparent(),
                     OutboxStatus.PENDING,
                     Instant.now()
             );
@@ -216,6 +264,20 @@ public class OrderServiceImpl implements OrderService {
             log.error("Failed to serialize outbox event payload", e);
             throw new RuntimeException("Outbox serialization failure", e);
         }
+    }
+
+    /**
+     * The W3C traceparent of the request that wrote the event. The publisher runs on a scheduler
+     * thread, so without this the trace would end at the outbox (NFR-06).
+     */
+    private String currentTraceparent() {
+        TraceContext context = tracer.currentTraceContext().context();
+        if (context == null) {
+            return null;
+        }
+        Map<String, String> carrier = new HashMap<>();
+        propagator.inject(context, carrier, Map::put);
+        return carrier.get("traceparent");
     }
 
     private boolean isAlreadyProcessed(String eventId, String consumer) {

@@ -46,14 +46,22 @@ management:
   zipkin:
     tracing:
       endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
+  observations:
+    enable:
+      # The outbox pollers run every 500 ms and would otherwise bury the request traces in Zipkin.
+      spring.scheduled: false
 
 logging:
-  # NFR-06: JSON log lines (Elastic Common Schema) carrying traceId and spanId from the MDC
+  # NFR-06: JSON logs, one object per line. Micrometer Tracing puts traceId/spanId in the MDC and the
+  # logstash format writes them as fields, so searching one traceId finds every line of one order in
+  # every service. Example:
+  # {"@timestamp":"…","message":"Product 2 is out of stock …","level":"WARN","traceId":"6ac4…","spanId":"1a4b…","service":"order-service"}
   structured:
     format:
-      console: ecs
-  pattern:
-    level: "%5p [${spring.application.name:},%X{traceId:-},%X{spanId:-}]"
+      console: logstash
+    json:
+      add:
+        service: ${spring.application.name}
   level:
     com.ecommerce: INFO
     org.springframework.kafka: INFO
@@ -79,6 +87,7 @@ spring:
       observation-enabled: true
 
 ---
+# Separate YAML document: B and C both define "management:", one document would duplicate the key
 # --- management/metrics (C) ---
 management:
   endpoints:

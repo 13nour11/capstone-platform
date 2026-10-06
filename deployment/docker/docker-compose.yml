@@ -244,12 +244,14 @@ services:
       SPRING_DATASOURCE_USERNAME: order_user
       SPRING_DATASOURCE_PASSWORD: ${ORDER_DB_PASSWORD:?set in .env}
       # FR-14: client-credentials token for the stock check
+      ORDER_SERVICE_AUTH_ENABLED: "true"
       ORDER_SERVICE_CLIENT_SECRET: ${ORDER_SERVICE_CLIENT_SECRET:?set in .env}
       KEYCLOAK_TOKEN_URI: http://keycloak:8180/realms/ecommerce-platform/protocol/openid-connect/token
     depends_on:
       <<: *platform-deps
       postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
+      keycloak: { condition: service_healthy }
     ports: ["8082:8082"]
 
   payment-service:

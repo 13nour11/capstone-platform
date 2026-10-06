@@ -5,6 +5,20 @@ server:
   port: 8082
 
 spring:
+  security:
+    oauth2:
+      # Resource server (issuer / JWK set) comes from the shared security block in application.yml.
+      # FR-14: order-service's own identity for the stock check (realm role SERVICE).
+      client:
+        registration:
+          order-service:
+            provider: keycloak
+            client-id: order-service
+            client-secret: ${ORDER_SERVICE_CLIENT_SECRET:}
+            authorization-grant-type: client_credentials
+        provider:
+          keycloak:
+            token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/token}
   datasource:
     # Containers and pods override these with SPRING_DATASOURCE_* (one login per service database, NFR-04)
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/order_db
@@ -22,6 +36,9 @@ spring:
     enabled: true
     baseline-on-migrate: true
     locations: classpath:db/migration
+    # B (V1-V49) and C (V50+) share one folder: a new B version must still apply on a database
+    # that already ran V50 (ADD §4, Flyway plan).
+    out-of-order: true
   kafka:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -32,56 +49,94 @@ spring:
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-  cloud:
-    openfeign:
-      client:
-        config:
-          inventory-service:
-            connect-timeout: 1000
-            read-timeout: 2000
 
 order:
+  service-auth:
+    # FR-14: send the client-credentials token to inventory, whose /check requires the SERVICE role.
+    # Needs ORDER_SERVICE_CLIENT_SECRET and KEYCLOAK_TOKEN_URI in this service's environment.
+    enabled: ${ORDER_SERVICE_AUTH_ENABLED:true}
   outbox:
     poll-interval-ms: 500
+  # Generous: payment may be down for minutes (NFR-01). Cancelling earlier would return stock
+  # for orders that are still going to be paid.
+  pending-timeout-minutes: 10
+  pending-sweeper:
+    fixed-delay-ms: 60000
   kafka:
     topics:
       order-events: order-events
       inventory-events: inventory-events
       payment-events: payment-events
-  # FR-14: the stock check authenticates with order-service's own client-credentials token
-  service-auth:
-    token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:8180/realms/ecommerce-platform/protocol/openid-connect/token}
-    client-id: order-service
-    client-secret: ${ORDER_SERVICE_CLIENT_SECRET}
 
-# Resilience4j on Order -> Inventory: Retry(CircuitBreaker(TimeLimiter(Bulkhead(call))))
+# Empty URL = resolve the service through Eureka (load-balanced). Set INVENTORY_SERVICE_URL /
+# PRODUCT_SERVICE_URL only to bypass discovery.
+inventory:
+  service:
+    url: ${INVENTORY_SERVICE_URL:}
+
+product:
+  service:
+    url: ${PRODUCT_SERVICE_URL:}
+  # How long an order may reuse a product's price before asking the catalogue again.
+  # 0 disables the cache entirely (every order pays a second remote call).
+  price-cache-ttl-seconds: ${PRODUCT_PRICE_CACHE_TTL_SECONDS:60}
+
+# Order -> Inventory and Order -> Product (FR-06, NFR-01). Layering and the reasons are in ADD §5.4.
+# The time limit is the Feign read timeout below: Resilience4j's TimeLimiter only applies to async
+# (CompletableFuture) methods, and these calls are synchronous by design.
 resilience4j:
   circuitbreaker:
     instances:
       inventoryService:
-        slidingWindowSize: 5
+        slidingWindowSize: 10
         permittedNumberOfCallsInHalfOpenState: 3
         slidingWindowType: COUNT_BASED
-        minimumNumberOfCalls: 3
+        minimumNumberOfCalls: 5
+        waitDurationInOpenState: 5s
+        failureRateThreshold: 50
+        # A sold-out product is an answer, not an outage.
+        ignoreExceptions:
+          - com.ecommerce.order.domain.exception.OutOfStockException
+      productService:
+        slidingWindowSize: 10
+        permittedNumberOfCallsInHalfOpenState: 3
+        slidingWindowType: COUNT_BASED
+        minimumNumberOfCalls: 5
         waitDurationInOpenState: 5s
         failureRateThreshold: 50
   retry:
     instances:
       inventoryService:
         maxAttempts: 2
-        waitDuration: 500ms
-        # An out-of-stock answer is a business result (409), never retried
+        waitDuration: 300ms
+        # Retrying cannot change these: the answer was "no stock", the circuit is open, or the
+        # bulkhead is full (retrying would only add load).
         ignoreExceptions:
           - com.ecommerce.order.domain.exception.OutOfStockException
-  timelimiter:
-    instances:
-      inventoryService:
-        timeoutDuration: 2s
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
+          - io.github.resilience4j.bulkhead.BulkheadFullException
+      productService:
+        maxAttempts: 2
+        waitDuration: 300ms
+        ignoreExceptions:
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
   bulkhead:
     instances:
       inventoryService:
-        maxConcurrentCalls: 20
-        maxWaitDuration: 100ms
+        # At most 25 order requests wait on inventory at once; the rest fail fast with 503
+        # instead of tying up every Tomcat thread when inventory is slow.
+        maxConcurrentCalls: 25
+        maxWaitDuration: 50ms
+
+spring.cloud.openfeign:
+  client:
+    config:
+      inventory-service:
+        connectTimeout: 1000
+        readTimeout: 2000
+      product-service:
+        connectTimeout: 1000
+        readTimeout: 2000
 
 management:
   endpoints:
