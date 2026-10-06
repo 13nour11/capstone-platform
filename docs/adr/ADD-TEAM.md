@@ -214,7 +214,7 @@ adding fields only (consumers ignore unknown fields); a breaking change gets a n
 | product | `GET /api/v1/products/{id}` | — | one product (same fields) | 404 | public |
 | product | `POST` / `PUT /api/v1/products[/{id}]`, `DELETE /{id}` | `{name,description,price>0,categoryId}` | 201 + Location / 200 / 204 | 400, 404 | ADMIN |
 | order | `POST /api/v1/orders` | `{items:[{productId,quantity>0}]}` (price comes from product-service) | 201 `{orderId,customerId,totalAmount,status:PENDING,items,createdAt}` | 400, 409 `OUT_OF_STOCK`, 503 `STOCK_CHECK_UNAVAILABLE` | CUSTOMER |
-| order | `GET /api/v1/orders/{id}` · `GET /api/v1/orders` | — | one order · own orders | 404 (also for another customer's order) | CUSTOMER |
+| order | `GET /api/v1/orders/{id}` · `GET /api/v1/orders?page&size(≤50, default 20)` | — | one order · own orders, newest first | 404 (also for another customer's order) | CUSTOMER |
 | order (B2) | `GET /api/v1/analytics/summary?hours=1..168` | — | counts per status, revenue, cancelled ratio, hourly rows | 400 | ADMIN |
 | inventory | `GET /api/v1/inventory/check?productId&quantity` | — | `{productId,requestedQuantity,available}` | 400 | SERVICE (not routed) |
 | inventory | `GET` / `PUT /api/v1/inventory/{productId}` | `{availableQuantity≥0}` | `{productId,available,reserved}` | 404, 400 | ADMIN |
@@ -263,7 +263,7 @@ Database per service on one PostgreSQL instance (Brief §5). Schemas are created
 | Service | Database | Tables (migration) | Owner |
 |---|---|---|---|
 | product-service | `product_db` | `categories`, `products` (V1, seed V2); `products.tenant_id` (B3) + `product_review_ratings` (B1) (V3) | A |
-| order-service | `order_db` | `orders`, `order_items` (V1), `outbox_event` (V2), `processed_event` (V3) | B |
+| order-service | `order_db` | `orders`, `order_items` (V1), `outbox_event` (V2), `processed_event` (V3), index `(customer_id, created_at DESC)` for the paged "my orders" list (V4) | B |
 | order-service — B2 | `order_db` | `analytics_order`, `analytics_processed_event` (`V50__create_order_analytics`) | C |
 | inventory-service | `inventory_db` | `stock`, `reservation` (V1), `outbox_event`, `processed_event` (V2); one reservation per order line, `cancelled_order`, `stock.low_stock_alerted` (V3) | B |
 | payment-service | `payment_db` | `payments`, `idempotency_keys`, `processed_event`, `outbox_event` (`V1__create_payment_tables`) | C |

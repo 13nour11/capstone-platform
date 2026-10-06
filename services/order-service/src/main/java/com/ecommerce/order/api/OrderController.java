@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -23,6 +24,7 @@ import java.util.List;
 public class OrderController {
 
     private static final String ROLE_ADMIN = "ROLE_ADMIN";
+    private static final int MAX_PAGE_SIZE = 50;
 
     private final OrderService orderService;
 
@@ -46,8 +48,13 @@ public class OrderController {
         return ResponseEntity.ok(orderService.getOrderForCustomer(orderId, authentication.getName(), admin));
     }
 
+    /** FR-10: newest first, one page at a time (size 1..50, default 20), like the product catalogue. */
     @GetMapping
-    public ResponseEntity<List<OrderResponse>> getMyOrders(@AuthenticationPrincipal Jwt jwt) {
-        return ResponseEntity.ok(orderService.getOrdersByCustomerId(jwt.getSubject()));
+    public ResponseEntity<List<OrderResponse>> getMyOrders(@AuthenticationPrincipal Jwt jwt,
+                                                           @RequestParam(defaultValue = "0") int page,
+                                                           @RequestParam(defaultValue = "20") int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.clamp(size, 1, MAX_PAGE_SIZE);
+        return ResponseEntity.ok(orderService.getOrdersByCustomerId(jwt.getSubject(), safePage, safeSize));
     }
 }

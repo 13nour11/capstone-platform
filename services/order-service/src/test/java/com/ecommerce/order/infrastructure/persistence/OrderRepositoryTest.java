@@ -6,6 +6,7 @@ import com.ecommerce.order.domain.OrderStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import com.ecommerce.order.support.PostgresTestcontainersConfig;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -77,9 +78,13 @@ class OrderRepositoryTest {
 
         orderRepository.saveAllAndFlush(List.of(order1, order2));
 
-        List<Order> orders = orderRepository.findByCustomerIdOrderByCreatedAtDesc("cust-200");
+        List<Order> orders = orderRepository.findByCustomerIdOrderByCreatedAtDesc("cust-200", PageRequest.of(0, 20));
         assertThat(orders).hasSize(2);
         assertThat(orders.get(0).getId()).isEqualTo("ord-b");
         assertThat(orders.get(1).getId()).isEqualTo("ord-a");
+
+        // One page at a time: the second page of size 1 holds only the older order
+        assertThat(orderRepository.findByCustomerIdOrderByCreatedAtDesc("cust-200", PageRequest.of(1, 1)))
+                .extracting(Order::getId).containsExactly("ord-a");
     }
 }
