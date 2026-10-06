@@ -21,9 +21,9 @@
 
 | Drawing (Brief §10.3) | File | Owner | Status |
 |---|---|---|---|
-| Service boundaries of the Bonus | [`docs/architecture/01-bonus-boundaries.svg`](architecture/01-bonus-boundaries.svg) | C | ✅ |
-| Sequence: happy path + one failure path | [`docs/architecture/02-order-sequence.svg`](architecture/02-order-sequence.svg) | B | ✅ |
-| Where data lives (table → database) | [`docs/architecture/03-data-ownership.svg`](architecture/03-data-ownership.svg) | A | ✅ |
+| Service boundaries of the Bonus | [`docs/architecture/01-bonus-boundaries.svg`](architecture/01-bonus-boundaries.svg) · [JPG](architecture/01-bonus-boundaries.jpg) | C | ✅ |
+| Sequence: happy path + one failure path | [`docs/architecture/02-order-sequence.svg`](architecture/02-order-sequence.svg) · [JPG](architecture/02-order-sequence.jpg) | B | ✅ |
+| Where data lives (table → database) | [`docs/architecture/03-data-ownership.svg`](architecture/03-data-ownership.svg) · [JPG](architecture/03-data-ownership.jpg) | A | ✅ |
 
 ```
  client ──JWT──► api-gateway :8080 ──► product :8081 (PG + Redis)
@@ -154,7 +154,7 @@ machine where Kubernetes can run.
 | 4 | Live cluster on the merged branch: pods Ready, ArgoCD Synced/Healthy, screenshot for the slides | A + C | shown on kind before the merge (§10, Docker Desktop with **12 GB**); repeat on the merged branch following deployment/kubernetes/README |
 | 5 | Team Charter: working hours, channel, team name, **signatures** | all three | names and handles are filled in |
 | 6 | ADD peer-review result (S25) | A | the header line of `docs/adr/ADD-TEAM.md` needs the real result from the other team |
-| 7 | Paper drawings (Brief §10.3 asks for photographed hand drawings) | each owner | the three SVGs in `docs/architecture/` are the reference to copy; add the photos next to them |
+| 7 | ~~Paper drawings~~ **done**: the trainer accepted computer-drawn diagrams | — | the three views are in `docs/architecture/` as SVG + JPG |
 | 8 | Slides: open `docs/slides/capstone-final.pptx` in PowerPoint once and rehearse the demo twice | all | the deck was generated and validated, but could not be rendered for a visual check in the review environment |
 | 9 | Pact contract test order ↔ inventory | B | **consciously not done** (recommended, not required). Item 10 in §5 is the case for adding one on the order-events contract |
 

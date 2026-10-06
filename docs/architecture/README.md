@@ -1,8 +1,9 @@
 # Architecture diagrams
 
-Digital versions of the three views the Brief asks for (§10.3), kept in sync with the code. The **paper drawings**
-themselves must be drawn and photographed by the team and added here (`01-…jpg`, `02-…jpg`, `03-…jpg`).
-`01-bonus-boundaries.svg` is Member C's drawing of the B2 boundaries.
+The three views the Brief asks for (§10.3), kept in sync with the code. The trainer accepted computer-drawn
+diagrams instead of photographed paper drawings, so each view is here as an editable SVG (the source) and as a
+high-resolution JPG rendered from it (`01-…jpg`, `02-…jpg`, `03-…jpg`) for the slides and the report.
+`01-bonus-boundaries` is Member C's drawing of the B2 boundaries.
 
 ## 1. Service boundaries (Core + Bonuses)
 
