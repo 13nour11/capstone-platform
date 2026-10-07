@@ -15,7 +15,7 @@
 | **Bonus** | B2 — Order Analytics (primary: CQRS read model + `GET /api/v1/analytics/summary` + Grafana dashboard); also B1 reviews, B3 tenants, B4 low-stock alerts (§10) |
 | **Functional scope** | FR-01 … FR-16: all implemented, all shown live by `scripts/e2e-check.sh` (39/39 checks) |
 | **Tests** | 331 tests in 10 modules, all green with `mvn verify` on the merged branch; JaCoCo gate met in every module; Kafka retry/DLT proven on an embedded broker; PostgreSQL, Redis and Kafka behaviour with Testcontainers |
-| **Not yet shown** | CI on `main`, images in GHCR (§6). Kubernetes + ArgoCD Synced/Healthy was shown on kind before the merge (§10); it has to be re-run on the merged branch. Compose: L0 GREEN and E2E 39/39 on the merged branch (§4) |
+| **Not yet shown** | CI on `main`, images in GHCR (§6). Kubernetes + ArgoCD Synced/Healthy was shown on kind before the merge (§10); it has to be re-run on `main`. Compose: L0 GREEN and E2E 39/39 on the merged branch (§4) |
 
 ## 2. Architecture
 
@@ -148,10 +148,10 @@ machine where Kubernetes can run.
 
 | # | Item | Owner | Action |
 |---|---|---|---|
-| 1 | **All work is on `integration/merge-abc-fixes` (the merge of `integration/merge-abc` and `capstone-integration-fixes`); `main` still holds only the initial commit; no Pull Request exists** | all (team decision) | merge through PRs with one teammate review each (Brief §5, §9). CI triggers on `main`, so it has not run yet |
-| 2 | CI green on `main`, images in GHCR | C | first run after item 1; the JaCoCo report is the NFR-07 proof (gate verified locally: all modules pass) |
-| 3 | ArgoCD tracks `env/dev`, which does not exist yet | A | `git push origin main:env/dev` after item 1 (deployment/argocd/README) |
-| 4 | Live cluster on the merged branch: pods Ready, ArgoCD Synced/Healthy, screenshot for the slides | A + C | shown on kind before the merge (§10, Docker Desktop with **12 GB**); repeat on the merged branch following deployment/kubernetes/README |
+| 1 | ✅ **Done.** `integration/merge-abc-fixes` was merged into `main` through PR #2 on 2026-10-06; the final slide updates followed in PRs #3 and #4 | all | from now on every change goes through a PR with one teammate review (Brief §5, §9) |
+| 2 | CI green on `main`, images in GHCR | C | the merge in item 1 triggered the first CI run on `main`: check its result in the Actions tab and the packages in GHCR; the JaCoCo report is the NFR-07 proof (gate verified locally: all modules pass) |
+| 3 | ArgoCD tracks `env/dev`, which does not exist yet | A | `git push origin main:env/dev` once item 2 is green (deployment/argocd/README) |
+| 4 | Live cluster on `main`: pods Ready, ArgoCD Synced/Healthy, screenshot for the slides | A + C | shown on kind before the merge (§10, Docker Desktop with **12 GB**); repeat on `main` following deployment/kubernetes/README |
 | 5 | Team Charter: working hours, channel, team name, **signatures** | all three | names and handles are filled in |
 | 6 | ADD peer-review result (S25) | A | the header line of `docs/adr/ADD-TEAM.md` needs the real result from the other team |
 | 7 | Paper drawings (Brief §10.3 asks for photographed hand drawings) | each owner | the three SVGs in `docs/architecture/` are the reference to copy; add the photos next to them |
@@ -179,14 +179,15 @@ machine where Kubernetes can run.
 | 6–8 | Happy path | README "Orders & Saga" demo: `201 PENDING` → `CONFIRMED`; notification log line |
 | 8–10 | Failure path | `PAYMENT_FAILURE_RATE=1.0` → `CANCELLED`, stock back; NFR-05 query = 0; `409` for no stock |
 | 10–11 | One trace | Zipkin trace gateway → … → notification; same `traceId` in JSON logs |
-| 11–12 | Deployment | `kubectl get pods`, ArgoCD Synced/Healthy (after §6 items 1–4) |
+| 11–12 | Deployment | `kubectl get pods`, ArgoCD Synced/Healthy (after §6 items 2–4) |
 | 12–13 | k6 + the bottleneck | Performance Report §4.2 / §5 |
 | 13–15 | Bonus B2 | `GET /api/v1/analytics/summary`, Grafana *Order Analytics* |
 
 ## 9. Lessons learned
 
 1. **Merge small and early.** We built on one branch per member and merged at the end. The Brief warned against it:
-   no PR history, CI that never ran on `main`, and integration bugs found late. Next time: one story per PR from day 1.
+   one large PR at the end instead of one per story, CI that first ran on `main` on the last day, and integration bugs
+   found late. Next time: one story per PR from day 1.
 2. **An ADD claim is a test you have not written yet.** FR-14 and the `out-of-order` setting were in the ADD but not in
    the code until the final review. Every decision now names its test (ADD §6 evidence column).
 3. **Resilience patterns compose badly by default.** A fallback on each layer and a business exception counted as a
@@ -238,4 +239,4 @@ locally built images:
 - hardening read off the running pods: uid/gid 10001, read-only root filesystem, one ServiceAccount per service, no
   API token mounted, probes on `/actuator/health/*`.
 
-The merge changed order-service, so this run has to be repeated on the merged branch (§6 item 4).
+The merge changed order-service, so this run has to be repeated on `main` (§6 item 4).
