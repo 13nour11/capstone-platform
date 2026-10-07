@@ -3,7 +3,7 @@
 > One page, agreed by all three members on 2026-10-07 (Brief §9). Each member signs by adding their name in the
 > Signature column in their own commit, or by approving the Pull Request that adds this charter.
 
-**Team:** `<team name>` · **Repository:** https://github.com/13nour11/capstone-platform · **Trainer:** Dr. ElSayed Baladoh
+**Team:** Capstone Team 3 · **Repository:** https://github.com/13nour11/capstone-platform · **Trainer:** Dr. ElSayed Baladoh
 
 **Project period:** 4–7 October 2026
 
