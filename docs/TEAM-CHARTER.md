@@ -1,7 +1,6 @@
 # Team Charter
 
-> One page, agreed by all three members on 2026-10-07 (Brief §9). Each member signs by adding their name in the
-> Signature column in their own commit, or by approving the Pull Request that adds this charter.
+> One page, agreed and signed by all three members on 2026-10-07 (Brief §9).
 
 **Team:** Capstone Team 3 · **Repository:** https://github.com/13nour11/capstone-platform · **Trainer:** Dr. ElSayed Baladoh
 
@@ -61,6 +60,6 @@
 
 | Member | Signature | Date |
 |---|---|---|
-| A — Nourhan Fahmy | | 2026-10-07 |
-| B — Mohamed Seliem | | 2026-10-07 |
-| C — Doaa Amr | | 2026-10-07 |
+| A — Nourhan Fahmy | Nourhan Fahmy | 2026-10-07 |
+| B — Mohamed Seliem | Mohamed Seliem | 2026-10-07 |
+| C — Doaa Amr | Doaa Amr | 2026-10-07 |
