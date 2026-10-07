@@ -1,6 +1,6 @@
 image:
   repository: ghcr.io/13nour11/capstone-platform/product-service
-  tag: latest   # CI commits the git sha here on the env/dev branch
+  tag: 8c14289c237af2831be3e13e258726c1ce52e564
 
 containerPort: 8081
 service:
