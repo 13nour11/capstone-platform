@@ -1,29 +1,33 @@
 # Team Charter
 
-> One page, signed by all three members in S25 (Brief §9). Fill in every `<…>` together, then sign.
+> One page, agreed by all three members on 2026-10-07 (Brief §9). Each member signs by adding their name in the
+> Signature column in their own commit, or by approving the Pull Request that adds this charter.
 
 **Team:** `<team name>` · **Repository:** https://github.com/13nour11/capstone-platform · **Trainer:** Dr. ElSayed Baladoh
+
+**Project period:** 4–7 October 2026
 
 | Member | GitHub | Owns (docs/TEAM-GUIDE.md §1) |
 |---|---|---|
 | A — Nourhan Fahmy | [@13nour11](https://github.com/13nour11) | api-gateway · product-service · notification-service · Keycloak realm · Helm · ArgoCD · k6 |
-| B — Mohammed Selim | [@M7mdselim](https://github.com/M7mdselim) | order-service · inventory-service · config-server · eureka-server · tracing |
+| B — Mohamed Seliem | [@M7mdselim](https://github.com/M7mdselim) | order-service · inventory-service · config-server · eureka-server · tracing |
 | C — Doaa Amr | [@doaaamr1201](https://github.com/doaaamr1201) | payment-service · Bonus B2 · Dockerfiles · CI · Kubernetes · Grafana |
 
 ## 1. Working hours
 
-- Core overlap: `<e.g. 19:00–21:00 every day>`; each member plans about 2 h/day outside it (Brief §2).
-- Daily 10-minute stand-up at `<time>`: yesterday, today, blocked?
+- Core overlap: 10:00–19:00 every day of the project period.
+- Daily 10-minute stand-up at 10:00: yesterday, today, blocked?
 
 ## 2. Communication
 
-- Channel: `<WhatsApp / Discord / Slack>`; decisions go into a PR or the ADD, not only into chat.
+- Channel: Webex; decisions go into a PR or the ADD, not only into chat.
 - Response time during working hours: within 2 hours.
 
 ## 3. Pull requests (review SLA)
 
 - Every change goes through a PR into `main` with one teammate's approval; `main` is protected.
-- A PR is reviewed within **24 hours**; CI must be green before merge; squash and merge.
+- A PR is reviewed within **24 hours**; CI must be green before merge; merge with a merge commit, never squash, so each member's
+  commits stay in the git log as evidence for the Individual assessment (Brief §9).
 - Short-lived branches (≤ 2 days), `capstone-Lx/<story>` branch names, `capstone-Lx: short-description` commits.
 - Pair work carries a `Co-authored-by:` trailer.
 
@@ -57,6 +61,6 @@
 
 | Member | Signature | Date |
 |---|---|---|
-| A — Nourhan Fahmy | | |
-| B — Mohammed Selim | | |
-| C — Doaa Amr | | |
+| A — Nourhan Fahmy | | 2026-10-07 |
+| B — Mohamed Seliem | | 2026-10-07 |
+| C — Doaa Amr | | 2026-10-07 |
