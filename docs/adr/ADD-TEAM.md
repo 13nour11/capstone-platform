@@ -33,53 +33,7 @@ never lost and never charged twice, and the evidence that it runs on Kubernetes 
 
 ---
 
-## 2. Bounded Context — Bonus B2: Order Analytics
-
-**User and pain.** Operations staff (role ADMIN) cannot see order volume, revenue or Saga failures without querying databases by hand.
-
-**Success measure.**
-- `GET /api/v1/analytics/summary` answers in under 200 ms for a 24-hour window.
-- The Grafana dashboard *Order Analytics* shows three panels: orders per minute by status, revenue, and Saga failure rate.
-- A redelivered event never changes a count.
-
-**What B2 owns.**
-- The read model `analytics_order` and its dedup table `analytics_processed_event` (order_db, migrations `V50+`).
-- The consumer group `order-service-analytics` on `order-events`.
-- The endpoint `GET /api/v1/analytics/summary` and the metrics `analytics_orders_total{status}` and `analytics_revenue_total`.
-
-**What B2 does not own.**
-- The `orders` table and every order state change. Order-service writes those; B2 only reads events.
-- No other service calls B2, and B2 calls no service.
-
-### Decision B2-1 — placement of the analytics module
-
-| | |
-|---|---|
-| **Decision** | A package `com.ecommerce.order.analytics` inside order-service, with its own tables and consumer group. |
-| **Options** | (a) Inside order-service, as a separate read side. (b) A new `analytics-service` with its own database. (c) Grafana querying `orders` directly. |
-| **Reason** | (a) adds no deployable, chart, CI job or database. The data is order data, so order_db is its natural home. (c) would couple dashboards to the write model's schema. |
-| **Trade-off** | The projection shares order-service's JVM and connection pool, so a burst of events competes with order requests. Because the package is separate and the consumer group is its own, extracting it later is mechanical. |
-| **Revisit when** | Projection lag shows up on the order API's P95 under k6 load, or a second consumer of the analytics data appears. |
-
-### Decision B2-2 — one row per order instead of hourly counters
-
-| | |
-|---|---|
-| **Decision** | `analytics_order(order_id PK, status, total_amount, placed_at)`. Hourly figures come from a `GROUP BY date_trunc('hour', placed_at)` query. |
-| **Options** | (a) A row per order. (b) Pre-aggregated `order_stats_hourly` counters. |
-| **Reason** | (a) is correct when events arrive out of order, for example `OrderConfirmed` before `OrderPlaced`, and its upserts are naturally idempotent. (b) cannot undo a count once it has been applied. |
-| **Trade-off** | The read cost grows with the number of orders in the window. An index on `placed_at` keeps a 24-hour window cheap at Capstone volumes. |
-| **Revisit when** | The summary query exceeds 200 ms. Then add an hourly rollup, fed from the per-order table. |
-
-### Decision B2-3 — exactly-once effect on an at-least-once topic
-
-| | |
-|---|---|
-| **Decision** | Each event's `eventId` is inserted into `analytics_processed_event` (`ON CONFLICT DO NOTHING`) in the same transaction as the upsert. Metrics move only after commit. |
-| **Options** | (a) A dedup table in the same transaction. (b) Rely on upsert idempotence alone. (c) Kafka transactions. |
-| **Reason** | (a) also protects the metrics, because a redelivered event never reaches the counters. (b) still double-counts metrics. (c) does not cover the database write. |
-| **Trade-off** | One extra row per event. The table grows with the event count; a retention job is deferred. |
-| **Revisit when** | `analytics_processed_event` passes about 1 M rows. Then add time-based cleanup older than the topic's retention. |
+## 2. Bounded Context — Bonus features (B2 primary; B1, B3, B4 extra)
 
 ### Bonus B2 — Order Analytics (primary Bonus)
 
