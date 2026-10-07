@@ -168,7 +168,11 @@ Candidates ruled out while looking:
 
 ## 6. Conclusions and remaining risks
 
-### Verdicts
+> **These verdicts are the laptop run and are superseded.** They are kept because the §5 bottleneck was
+> measured here. For the figures to quote, use **§7.4** (canonical profile on adequate hardware) and
+> **§8** (the runs on the merged branch, which the slides use). Where they disagree, §8 is the latest.
+
+### Verdicts (laptop run — superseded by §7.4 and §8)
 
 | NFR | Target | Verdict |
 |---|---|---|

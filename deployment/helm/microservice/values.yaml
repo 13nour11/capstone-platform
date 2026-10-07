@@ -34,5 +34,9 @@ resources:
 probes:
   livenessPath: /actuator/health/liveness
   readinessPath: /actuator/health/readiness
-  # Slow JVM start on a laptop cluster: allow up to 3 minutes before liveness takes over
-  startupFailureThreshold: 36
+  # Slow JVM start on a laptop cluster: allow up to 10 minutes before liveness takes over.
+  # With 9 JVMs starting at once on 4 cores, 3 minutes was not enough (killed by the startup probe).
+  startupFailureThreshold: 120
+  # Kubernetes' default probe timeout is 1 s. On a CPU-saturated laptop an answer takes longer, the
+  # liveness probe fails and the pod is restarted in a loop. 5 s matches the compose HEALTHCHECK.
+  timeoutSeconds: 5

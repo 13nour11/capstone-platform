@@ -56,18 +56,21 @@ spec:
               path: {{ .Values.probes.livenessPath }}
               port: http
             periodSeconds: 5
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.startupFailureThreshold }}
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.livenessPath }}
               port: http
             periodSeconds: 10
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
             failureThreshold: 3
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.readinessPath }}
               port: http
             periodSeconds: 5
+            timeoutSeconds: {{ .Values.probes.timeoutSeconds }}
             failureThreshold: 3
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

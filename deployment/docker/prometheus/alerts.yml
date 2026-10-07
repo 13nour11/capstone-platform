@@ -1,0 +1,66 @@
+# Alert rules for the failures this platform actually had.
+#
+# Metric names follow Micrometer's Prometheus naming: a dot becomes an underscore and a Counter
+# gains a _total suffix, so the Counter `notifications.dlt` is exposed as `notifications_dlt_total`
+# and the Gauge `outbox.pending` as `outbox_pending`. The source names are in the services under
+# MeterRegistry.counter(...) / Gauge.builder(...).
+groups:
+  - name: platform
+    interval: 30s
+    rules:
+
+      # The contract bug that ran for the whole project: every order event failed notification and
+      # was parked in order-events.DLT. Nothing screamed, because a DLT only wrote a log line.
+      # One dead letter is already wrong: the retries happen before the message reaches the DLT.
+      - alert: NotificationsDeadLettered
+        expr: increase(notifications_dlt_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Notifications are being dead-lettered ({{ $value | printf \"%.0f\" }} in 5 min)"
+          description: >-
+            A customer notice was retried and then parked in a .DLT topic, so the customer was never
+            told about their order. Read the topic with the command in README "Reading a dead-letter
+            topic" and check the producer's event shape against ADD 3.2.
+
+      # The outbox poller publishes every 500 ms. A backlog that stays up means the publisher or the
+      # broker is stuck, and Saga steps are not leaving the service (ADD F2).
+      - alert: OutboxBacklogNotDraining
+        expr: outbox_pending > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} has {{ $value | printf \"%.0f\" }} unpublished outbox rows"
+          description: >-
+            Events are committed but not reaching Kafka for over 5 minutes. Check the broker and the
+            service's OutboxPublisher log.
+
+      # Bonus B2 stretch goal: alert on the cancelled ratio. A healthy platform cancels a few orders
+      # (declined payment, sold out); a third of them means a Saga step is failing systematically.
+      - alert: HighOrderCancellationRatio
+        expr: >-
+          sum(increase(analytics_orders_total{status="CANCELLED"}[15m]))
+          / clamp_min(sum(increase(analytics_orders_total[15m])), 1) > 0.33
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of orders cancelled in the last 15 min"
+          description: >-
+            Normal causes are declined payments and sold-out products. A sustained ratio this high
+            usually means inventory or payment is failing, not that customers changed their minds.
+
+      # A service that Prometheus cannot scrape is either down or wedged. The gateway returns 503
+      # for it, which is correct behaviour but still an outage for that capability.
+      - alert: ServiceDown
+        expr: up{job="spring-services"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} is not being scraped"
+          description: >-
+            The container is down, unhealthy, or not serving /actuator/prometheus. Check
+            `docker compose ps` and the service log.
