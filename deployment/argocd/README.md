@@ -22,6 +22,15 @@ kubectl apply -f deployment/argocd/infra-app.yaml -f deployment/argocd/services-
 
 UI: `kubectl -n argocd port-forward svc/argocd-server 8443:443` → https://localhost:8443, user `admin`,
 password from `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d`.
+In PowerShell: `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}")))`.
+
+If antivirus software blocks the self-signed certificate, serve the UI over plain HTTP on the local cluster only:
+
+```bash
+kubectl -n argocd patch configmap argocd-cmd-params-cm --type merge -p '{"data":{"server.insecure":"true"}}'
+kubectl -n argocd rollout restart deploy/argocd-server
+kubectl -n argocd port-forward svc/argocd-server 8090:80     # http://localhost:8090
+```
 
 Services crash-loop until `infra` is healthy, then recover on their own (startup probe + restart).
 
