@@ -15,7 +15,7 @@
 | **Bonus** | B2 — Order Analytics (primary: CQRS read model + `GET /api/v1/analytics/summary` + Grafana dashboard); also B1 reviews, B3 tenants, B4 low-stock alerts (§10) |
 | **Functional scope** | FR-01 … FR-16: all implemented, all shown live by `scripts/e2e-check.sh` (39/39 checks) |
 | **Tests** | 331 tests in 10 modules, all green with `mvn verify` on the merged branch; JaCoCo gate met in every module; Kafka retry/DLT proven on an embedded broker; PostgreSQL, Redis and Kafka behaviour with Testcontainers |
-| **Not yet shown** | Kubernetes + ArgoCD Synced/Healthy was shown on kind before the merge (§10); it has to be re-run on `main`. CI on `main` is green and the images are in GHCR (§6 item 2). Compose: L0 GREEN and E2E 39/39 on the merged branch (§4) |
+| **Shown** | Kubernetes + ArgoCD on `main` (§6 item 4): all 10 Applications Synced/Healthy on kind, self-heal, order `CONFIRMED` through NodePort 30080. CI on `main` green, images in GHCR (§6 item 2). Compose: L0 GREEN and E2E 39/39 on the merged branch (§4) |
 
 ## 2. Architecture
 
@@ -86,7 +86,7 @@ Inventory call is the Feign read timeout, because Resilience4j's `@TimeLimiter` 
 | NFR-05 | No orphaned reservation > 30 s after CANCELLED | ✅ | `ReservationSweeperTest`, `StockRepositoryTest`; NFR-05 query in README |
 | NFR-06 | One traceId across HTTP and Kafka; JSON logs with traceId | ✅ | `OutboxPublisherTest`; e2e: one Zipkin trace spans gateway, order, inventory, payment and notification; JSON log lines carry `traceId` |
 | NFR-07 | ≥ 60 % line coverage on service layers; ≥ 1 Testcontainers test per DB service | ✅ configured | JaCoCo gate in the parent POM and CI; `*IT`/`*RepositoryTest` per DB-owning service. Proven on CI for every module: [run #21](https://github.com/13nour11/capstone-platform/actions/runs/37600856018) (8 modules) and [run #31](https://github.com/13nour11/capstone-platform/actions/runs/37610708828) (api-gateway, product-service), test gate + coverage gate green |
-| NFR-08 | `docker compose up`; `helm install` on Kubernetes | ✅ compose · ⚠️ cluster | 16 containers healthy, `verify-l0.sh` GREEN; `helm lint`/`helm template` pass for all 8 services; a live cluster run is still to show (§6) |
+| NFR-08 | `docker compose up`; `helm install` on Kubernetes | ✅ | Compose: 16 containers healthy, `verify-l0.sh` GREEN. Kubernetes: on `main` (2026-10-07) ArgoCD installed the Helm chart for all 9 services plus `infra` on kind: 10/10 Applications Synced/Healthy (§6 item 4) |
 | NFR-09 | Flyway; every public API under `/api/v1` | ✅ | `ddl-auto=validate` everywhere; ADD §3.1 |
 | NFR-10 | At-least-once + idempotent consumers + DLT | ✅ | `OrderSagaDeadLetterIT`, `InventorySagaDeadLetterIT`, `PaymentSagaKafkaIT`, `NotificationKafkaIT` |
 
@@ -151,7 +151,7 @@ machine where Kubernetes can run.
 | 1 | ~~All work sits outside `main`; no Pull Request exists~~ — **done.** `main` holds the whole platform (91 commits) after Pull Requests #2, #3 and #4, each merged with a teammate's review (Brief §5, §9) | all | closed; CI now triggers on `main`, see item 2 |
 | 2 | ~~CI green on `main`, images in GHCR~~ — **done.** Every module has passed the test gate and the coverage gate on `main`: config-server, eureka-server, order, payment, inventory, notification and review in [run #21](https://github.com/13nour11/capstone-platform/actions/runs/37600856018) (merge of PR #5); api-gateway and product-service in [run #31](https://github.com/13nour11/capstone-platform/actions/runs/37610708828) (merge of PR #10, which removed the duplicate tracing dependencies that broke the gateway build in #21). All 9 images are in GHCR | C | closed. Optional: a manual *Run workflow* on `main` rebuilds all 9 in one run and pins every tag in `env/dev` to one commit |
 | 3 | ~~ArgoCD tracks `env/dev`, which does not exist yet~~ — **done.** CI created `env/dev` in [run #31](https://github.com/13nour11/capstone-platform/actions/runs/37610708828) (`ci: deploy 8c14289`): api-gateway and product-service are pinned to `8c14289`, the other 7 services use `latest` (the images pushed by [run #21](https://github.com/13nour11/capstone-platform/actions/runs/37600856018)) | A | closed; the optional manual run in item 2 pins all 9 |
-| 4 | Live cluster on `main`: pods Ready, ArgoCD Synced/Healthy, screenshot for the slides | A + C | shown on kind before the merge (§10, Docker Desktop with **12 GB**); repeat on `main` following deployment/kubernetes/README |
+| 4 | ~~Live cluster on `main`: pods Ready, ArgoCD Synced/Healthy~~ — **done** (2026-10-07). Fresh kind cluster, Docker Desktop **12 GB**, ArgoCD reading `env/dev` (`ad72e1c`, CI's `deploy 8c14289`) from a local read-only git server (the repo is private; deployment/argocd/README). Result: **10/10 Applications Synced/Healthy**, 17 pods Ready. Live through NodePort 30080: `GET /products` 200 without a token, `POST /orders` 401 without a token, customer `POST /products` 403, order `201 PENDING` → `CONFIRMED` in ~4 s, `GET /analytics/summary` 200 for ADMIN. Self-heal: `kubectl scale deploy/product-service --replicas=0` → ArgoCD restored 1/1 in ~22 s. Hardening on the running pods: one ServiceAccount per service, no API token mounted, uid 10001 non-root, read-only root filesystem, startup/readiness probes | A + C | closed; still to do: an ArgoCD UI screenshot for the slides |
 | 5 | ~~Team Charter: signatures~~ — **done.** Team name, hours, stand-up, channel and merge strategy filled in; signed by all three on 2026-10-07 | all three | closed |
 | 6 | ADD peer-review result (S25) | A | the header line of `docs/adr/ADD-TEAM.md` needs the real result from the other team |
 | 7 | ~~Paper drawings (Brief §10.3 asks for photographed hand drawings)~~ — **done.** The trainer granted the team an exception from hand drawing, so the three diagrams are delivered digitally: `01-bonus-boundaries.svg` (Bonus boundaries), `02-order-sequence.svg` (happy path + payment-failure compensation), `03-data-ownership.svg` (table → database). All three validated as XML and rendered | each owner | closed |
@@ -239,4 +239,4 @@ locally built images:
 - hardening read off the running pods: uid/gid 10001, read-only root filesystem, one ServiceAccount per service, no
   API token mounted, probes on `/actuator/health/*`.
 
-The merge changed order-service, so this run has to be repeated on `main` (§6 item 4).
+The merge changed order-service, so this run was repeated on `main` on 2026-10-07 (§6 item 4): 10/10 Synced/Healthy.

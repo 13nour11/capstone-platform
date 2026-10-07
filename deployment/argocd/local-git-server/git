@@ -1,0 +1,4 @@
+#!/bin/sh
+# CGI wrapper: serves every bare repository under /repos, read-only.
+export GIT_PROJECT_ROOT=/repos GIT_HTTP_EXPORT_ALL=1
+exec git http-backend
