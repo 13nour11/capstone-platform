@@ -171,7 +171,8 @@ gateway → order → inventory/product → Kafka → inventory → payment → 
 - GitHub Actions: آخر run أخضر على `main` → اختبارات + coverage ≥ 60% + gitleaks + بناء الـ images ونشرها على GHCR.
 - **لو الـ cluster شغال على لابتوب:** `kubectl get pods -n ecommerce` (كله Running)، و ArgoCD: كله **Synced / Healthy**.
   ولو فيه وقت: `kubectl scale deploy/product-service --replicas=0 -n ecommerce` ← ArgoCD يرجّعه لوحده (self-heal).
-- **لو مفيش cluster:** الـ screenshot اللي في السلايدز من تشغيل kind + ArgoCD (Final Report §10).
+- **لو مفيش cluster:** سلايد 16 (ArgoCD 10/10 Synced/Healthy) وسلايد 17 (CI أخضر + Grafana)، من التشغيل على `main` يوم 7 أكتوبر.
+- **ArgoCD UI محلي:** الـ repo private، فـ ArgoCD بيقرا `env/dev` من git server محلي (`deployment/argocd/README.md`). الـ UI على `https://localhost:8443` (`kubectl -n argocd port-forward svc/argocd-server 8443:443`). لو برنامج الحماية بيمنع الشهادة المحلية، اعملوا ArgoCD يشتغل HTTP (الأوامر في `deployment/argocd/README.md`) وافتحوا `http://localhost:8090`.
 
 **تقول:** "كل image بتشتغل بيوزر عادي مش root، والـ secrets مش في Git: بتتعمل بـ `scripts/create-k8s-secrets.sh`. Helm chart واحد لكل الخدمات، و ArgoCD بيسحب من Git."
 
