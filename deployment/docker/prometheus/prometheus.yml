@@ -2,6 +2,10 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Alert rules for the failure modes in ADD §6. Prometheus evaluates them every 15s.
+rule_files:
+  - alerts.yml
+
 scrape_configs:
   # Services running inside docker compose
   - job_name: spring-services

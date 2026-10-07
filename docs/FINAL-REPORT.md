@@ -148,13 +148,13 @@ machine where Kubernetes can run.
 
 | # | Item | Owner | Action |
 |---|---|---|---|
-| 1 | ✅ **Done.** `integration/merge-abc-fixes` was merged into `main` through PR #2 on 2026-10-06; the final slide updates followed in PRs #3 and #4 | all | from now on every change goes through a PR with one teammate review (Brief §5, §9) |
+| 1 | ~~All work sits outside `main`; no Pull Request exists~~ — **done.** `main` holds the whole platform (91 commits) after Pull Requests #2, #3 and #4, each merged with a teammate's review (Brief §5, §9) | all | closed; CI now triggers on `main`, see item 2 |
 | 2 | CI green on `main`, images in GHCR | C | the merge in item 1 triggered the first CI run on `main`: check its result in the Actions tab and the packages in GHCR; the JaCoCo report is the NFR-07 proof (gate verified locally: all modules pass) |
 | 3 | ArgoCD tracks `env/dev`, which does not exist yet | A | `git push origin main:env/dev` once item 2 is green (deployment/argocd/README) |
 | 4 | Live cluster on `main`: pods Ready, ArgoCD Synced/Healthy, screenshot for the slides | A + C | shown on kind before the merge (§10, Docker Desktop with **12 GB**); repeat on `main` following deployment/kubernetes/README |
 | 5 | Team Charter: working hours, channel, team name, **signatures** | all three | names and handles are filled in |
 | 6 | ADD peer-review result (S25) | A | the header line of `docs/adr/ADD-TEAM.md` needs the real result from the other team |
-| 7 | Paper drawings (Brief §10.3 asks for photographed hand drawings) | each owner | the three SVGs in `docs/architecture/` are the reference to copy; add the photos next to them |
+| 7 | ~~Paper drawings (Brief §10.3 asks for photographed hand drawings)~~ — **done.** The trainer granted the team an exception from hand drawing, so the three diagrams are delivered digitally: `01-bonus-boundaries.svg` (Bonus boundaries), `02-order-sequence.svg` (happy path + payment-failure compensation), `03-data-ownership.svg` (table → database). All three validated as XML and rendered | each owner | closed |
 | 8 | Slides: open `docs/slides/capstone-final.pptx` in PowerPoint once and rehearse the demo twice | all | the deck was generated and validated, but could not be rendered for a visual check in the review environment |
 | 9 | Pact contract test order ↔ inventory | B | **consciously not done** (recommended, not required). Item 10 in §5 is the case for adding one on the order-events contract |
 
